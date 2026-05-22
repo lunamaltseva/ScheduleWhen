@@ -53,6 +53,7 @@ Enrollment count and international student count grouped by department and conce
 - **Sophomore languages**: Kyrgyz (KLL, 4 cr) + Russian (RUS/RFL, 2 cr); international students take KLL-104 and RFL instead of the domestic variants
 - **No time conflicts**: every student's schedule is conflict-checked against `(day, time)` slot pairs
 - **Section distribution**: sections are selected randomly; seat counts are soft limits (an overflow pass simulates add-form enrollment)
+- **Sports requirement**: undergraduates must complete 4 sport classes over 4 years (0 credits each); modeled per-semester as Freshmen 70%, Sophomores 60%, Juniors 15%, Seniors 5%; sport selection is random from 12 SPO- courses
 
 ---
 
@@ -103,7 +104,7 @@ Orchestrates everything:
 Run from the project root:
 
 ```bash
-python3 scripts/generate_students.py
+python3 -m scripts.generate_students
 ```
 
 Requires **Python 3.12+** and **openpyxl** (`pip install openpyxl`).

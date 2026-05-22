@@ -55,7 +55,12 @@ _register(CD.KLL_INTERNATIONAL)
 for _dept_courses in DD.DEPT_CATALOG.values():
     _register(_dept_courses)
 
-GENED_CODES = [c["code"] for c in CD.GENED]
+GENED_CODES  = [c["code"] for c in CD.GENED]
+SPORTS_CODES = [c["code"] for c in CD.SPORTS]
+
+# Probability of taking a sport this semester, by UG year.
+# 4 sports required over 4 years (8 semesters) → heavier load early.
+SPORT_PROB = {"Freshman": 0.70, "Sophomore": 0.60, "Junior": 0.15, "Senior": 0.05}
 
 # Tracks how many students have enrolled in each (course_code, section_label).
 ENROLLMENT = Counter()
@@ -238,6 +243,14 @@ def build_schedule(dept, conc, year, international):
             if sch.credits >= 18:
                 break
             sch.add(code)
+
+    # 5. Sport (0-credit; UG only; probability by year; conflict-checked)
+    if not is_pg and random.random() < SPORT_PROB.get(year, 0):
+        sports_pool = list(SPORTS_CODES)
+        random.shuffle(sports_pool)
+        for code in sports_pool:
+            if sch.add(code):
+                break
 
     return sch
 
