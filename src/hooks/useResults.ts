@@ -1,95 +1,65 @@
 import { useMemo } from 'react';
 import { useApp } from '../context/AppContext';
-import { STUDENTS } from '../data/synthetic';
-import { CLASS_SLOTS, DAYS_FULL, PRIORITY_RANGES } from '../constants';
-import type { Filter, Recommendation } from '../types';
-import type { ClassSlot } from '../constants';
+import { CLASS_SLOTS, DAYS_FULL } from '../constants';
+import { toMinutes } from '../algorithm/score';
+import type { Filter, Student } from '../types';
 
-const ALL_SLOT_INDICES = CLASS_SLOTS.map((_, i) => i);
-
-function matchesFilter(
-  student: { dept: string; year: string; international: boolean },
-  filter: Filter,
-): boolean {
+function matchesFilter(student: Student, filter: Filter): boolean {
   if (filter.depts.length > 0 && !filter.depts.includes(student.dept)) return false;
   if (filter.years.length > 0 && !filter.years.includes(student.year)) return false;
-  if (filter.status === 'domestic' && student.international) return false;
+  if (filter.status === 'domestic'      && student.international)  return false;
   if (filter.status === 'international' && !student.international) return false;
   return true;
 }
 
-function addMinutes(timeStr: string, mins: number): string {
-  const [h, m] = timeStr.split(':').map(Number);
-  const total = h * 60 + m + mins;
-  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
-}
-
-export interface ResultsOutput {
-  recommendations: Recommendation[];
-  heatmap: Record<string, number>;
-}
-
-export function useResults(): ResultsOutput {
+// Heatmap background: shows free% among on-campus students at each class slot.
+// Students with no classes on a given day are excluded (not on campus).
+export function useResults(): { heatmap: Record<string, number> } {
   const { state } = useApp();
-  const { selectedDays, timePeriods, duration, filters } = state;
+  const { selectedDays, filters, students } = state;
 
   return useMemo(() => {
     const activeDayIndices = selectedDays
       .map((on, i) => (on ? i : -1))
       .filter(i => i >= 0);
 
-    // Union of selected period slot indices; empty = all slots
-    const prioritySlotIndices: number[] = timePeriods.length === 0
-      ? ALL_SLOT_INDICES
-      : [...new Set(timePeriods.flatMap(p => [...(PRIORITY_RANGES[p] ?? [])]))];
-
-    const filterGroups = filters.map(f => ({
-      filter: f,
-      students: STUDENTS.filter(s => matchesFilter(s, f)),
-    }));
-
-    const effectiveGroups = filterGroups.length > 0
-      ? filterGroups
-      : [{ filter: { id: '', depts: [], years: [], status: 'any' as const }, students: STUDENTS }];
+    const isDefaultOnly =
+      filters.length === 1 && filters[0].id === 'default' && filters[0].depts.length === 0;
+    const filterGroups = isDefaultOnly
+      ? [students]
+      : filters.map(f => students.filter(s => matchesFilter(s, f)));
 
     const heatmap: Record<string, number> = {};
-    const scores: Array<{ key: string; day: string; slot: ClassSlot; score: number; eligible: number }> = [];
 
     for (const dayIdx of activeDayIndices) {
       const day = DAYS_FULL[dayIdx];
-      for (let slotIdx = 0; slotIdx < CLASS_SLOTS.length; slotIdx++) {
-        const slot = CLASS_SLOTS[slotIdx];
-        const key = `${day}-${slot}`;
 
-        let totalFree = 0;
-        let totalStudents = 0;
+      for (const slot of CLASS_SLOTS) {
+        const key      = `${day}-${slot}`;
+        const slotStart = toMinutes(slot);
+        const slotEnd   = slotStart + 75;
 
-        for (const { students } of effectiveGroups) {
-          if (students.length === 0) continue;
-          const freeCount = students.filter(s => !s.occupied.has(key)).length;
-          totalFree += freeCount;
-          totalStudents += students.length;
+        let totalOnCampus = 0;
+        let totalFree     = 0;
+
+        for (const group of filterGroups) {
+          for (const student of group) {
+            const onCampus = student.periods.some(p => p.day === day);
+            if (!onCampus) continue;
+            totalOnCampus++;
+            const busy = student.periods.some(
+              p => p.day === day && p.startMin < slotEnd && p.endMin > slotStart,
+            );
+            if (!busy) totalFree++;
+          }
         }
 
-        const avgFree = totalStudents > 0 ? (totalFree / totalStudents) * 100 : 0;
-        heatmap[key] = Math.round(avgFree);
-
-        if (prioritySlotIndices.includes(slotIdx)) {
-          scores.push({ key, day, slot, score: avgFree, eligible: totalFree });
-        }
+        heatmap[key] = totalOnCampus > 0
+          ? Math.round((totalFree / totalOnCampus) * 100)
+          : 0;
       }
     }
 
-    scores.sort((a, b) => b.score - a.score);
-
-    const recommendations: Recommendation[] = scores.slice(0, 4).map(r => ({
-      day: r.day,
-      slot: r.slot,
-      endTime: addMinutes(r.slot, duration),
-      freePercent: r.score,
-      eligibleCount: r.eligible,
-    }));
-
-    return { recommendations, heatmap };
-  }, [selectedDays, timePeriods, duration, filters]);
+    return { heatmap };
+  }, [selectedDays, filters, students]);
 }

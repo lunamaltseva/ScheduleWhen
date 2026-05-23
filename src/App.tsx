@@ -1,9 +1,24 @@
 import { useState, useEffect } from 'react';
 import { AppProvider } from './context/AppContext';
+import { useApp } from './context/AppContext';
+import { loadStudentsFromExcel } from './data/loader';
 import Sidebar from './components/Sidebar';
 import CalendarView from './components/Calendar';
 import ChatBot from './components/Chat';
-import { useApp } from './context/AppContext';
+
+// Loads the real student schedule from the Excel file on first mount.
+// Falls back gracefully to synthetic data if the fetch fails.
+function ExcelLoader() {
+  const { dispatch } = useApp();
+
+  useEffect(() => {
+    loadStudentsFromExcel(`${import.meta.env.BASE_URL}Fall_2026_Students.xlsx`)
+      .then(students => dispatch({ type: 'SET_STUDENTS', students }))
+      .catch(err => console.warn('Failed to load real schedule data, using synthetic fallback:', err));
+  }, [dispatch]);
+
+  return null;
+}
 
 function DesktopLayout() {
   return (
@@ -45,6 +60,7 @@ function Layout() {
 export default function App() {
   return (
     <AppProvider>
+      <ExcelLoader />
       <Layout />
     </AppProvider>
   );

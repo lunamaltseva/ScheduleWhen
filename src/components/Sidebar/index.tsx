@@ -1,11 +1,10 @@
 import { useApp } from '../../context/AppContext';
-import { useResults } from '../../hooks/useResults';
-import { ChatbotIcon } from '../Icons';
 import SidebarHeader from './SidebarHeader';
 import EventSpec from './EventSpec';
 import FiltersSection from './FiltersSection';
 import FilterModal from './FilterModal';
 import ResultsSection from './ResultsSection';
+import GenerateButton from './GenerateButton';
 
 function Separator() {
   return <hr className="border-brand-gray mx-5" />;
@@ -25,24 +24,6 @@ interface SidebarProps {
 
 export default function Sidebar({ mobileMode = false }: SidebarProps) {
   const { state, dispatch } = useApp();
-  const { recommendations } = useResults();
-  const recommendation = recommendations[0] ?? null;
-
-  function handleExplainWhy() {
-    const text = recommendation
-      ? `The best slot is ${recommendation.day} at ${recommendation.slot}–${recommendation.endTime}. ${Math.round(recommendation.freePercent)}% of the filtered group is free — ${recommendation.eligibleCount.toLocaleString()} eligible students.`
-      : 'No recommendation yet — try adding filters or selecting more days.';
-
-    dispatch({ type: 'OPEN_CHAT' });
-    dispatch({
-      type: 'ADD_CHAT_MESSAGE',
-      message: { id: Math.random().toString(36).slice(2), role: 'bot', text },
-    });
-
-    if (mobileMode) {
-      dispatch({ type: 'SET_MOBILE_VIEW', view: 'chat' });
-    }
-  }
 
   return (
     <aside className={`${mobileMode ? 'w-full' : 'w-1/5'} flex flex-col h-full overflow-hidden border-r border-brand-gray bg-white`}>
@@ -72,18 +53,12 @@ export default function Sidebar({ mobileMode = false }: SidebarProps) {
           mobileMode={mobileMode}
           onViewHeatmap={() => dispatch({ type: 'SET_MOBILE_VIEW', view: 'calendar' })}
         />
-        <div className="h-4" />
+        <div className="h-2" />
       </div>
 
-      {/* Explain why — docked at bottom */}
+      {/* Generate / Explain why — docked at the bottom */}
       <div className="flex-none border-t border-brand-gray px-5 py-4">
-        <button
-          onClick={handleExplainWhy}
-          className="w-full bg-brand-blue text-white py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 hover:bg-blue-900 transition-colors"
-        >
-          <ChatbotIcon />
-          Explain why
-        </button>
+        <GenerateButton mobileMode={mobileMode} />
       </div>
 
       {state.activeModal !== null && <FilterModal />}

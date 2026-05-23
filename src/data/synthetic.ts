@@ -20,6 +20,11 @@ function pick<T>(arr: readonly T[]): T {
   return arr[Math.floor(rng() * arr.length)];
 }
 
+function slotToMin(slot: string): number {
+  const [h, m] = slot.split(':').map(Number);
+  return h * 60 + m;
+}
+
 // Department → approximate UG headcount (sums to 1028)
 const UG_DEPTS: Array<{ dept: string; count: number }> = [
   { dept: 'BA',       count: 100 },
@@ -57,34 +62,29 @@ const PG_DEPTS: Array<{ dept: string; count: number }> = [
 const UG_YEARS = ['Freshman', 'Sophomore', 'Junior', 'Senior'] as const;
 const PG_YEARS = ['Masters 1st Year', 'Masters 2nd Year'] as const;
 
-function makeOccupied(): Set<string> {
-  const occupied = new Set<string>();
+function makePeriods(): Array<{ day: string; startMin: number; endMin: number }> {
+  const periods: Array<{ day: string; startMin: number; endMin: number }> = [];
   const numSlots = randInt(4, 8);
   const usedDays = new Set<number>();
 
-  for (let attempt = 0; attempt < 30 && occupied.size < numSlots; attempt++) {
+  for (let attempt = 0; attempt < 30 && periods.length < numSlots; attempt++) {
     const dayIdx = Math.floor(rng() * DAYS_FULL.length);
     if (usedDays.has(dayIdx)) continue;
     const slot = pick(CLASS_SLOTS);
-    const key = `${DAYS_FULL[dayIdx]}-${slot}`;
-    if (!occupied.has(key)) {
-      occupied.add(key);
-      usedDays.add(dayIdx);
-    }
+    const startMin = slotToMin(slot);
+    periods.push({ day: DAYS_FULL[dayIdx], startMin, endMin: startMin + 75 });
+    usedDays.add(dayIdx);
   }
-  return occupied;
+  return periods;
 }
 
 export function generateStudents(): Student[] {
   const students: Student[] = [];
   let idCounter = 1;
 
-  // Shuffle international assignments across 1222 students
-  // 450 international flags distributed proportionally
   const totalStudents = UG_DEPTS.reduce((a, d) => a + d.count, 0)
     + PG_DEPTS.reduce((a, d) => a + d.count, 0);
   const intlPool: boolean[] = Array(450).fill(true).concat(Array(totalStudents - 450).fill(false));
-  // Fisher-Yates shuffle of intlPool
   for (let i = intlPool.length - 1; i > 0; i--) {
     const j = Math.floor(rng() * (i + 1));
     [intlPool[i], intlPool[j]] = [intlPool[j], intlPool[i]];
@@ -101,7 +101,7 @@ export function generateStudents(): Student[] {
           dept,
           year,
           international: intlPool[intlIdx++ % intlPool.length],
-          occupied: makeOccupied(),
+          periods: makePeriods(),
         });
       }
     }
@@ -117,7 +117,7 @@ export function generateStudents(): Student[] {
           dept,
           year,
           international: intlPool[intlIdx++ % intlPool.length],
-          occupied: makeOccupied(),
+          periods: makePeriods(),
         });
       }
     }

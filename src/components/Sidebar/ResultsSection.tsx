@@ -1,33 +1,90 @@
-import { useResults } from '../../hooks/useResults';
-import type { Recommendation } from '../../types';
+import { useApp } from '../../context/AppContext';
+import { StarIcon } from '../Icons';
+import type { Suggestion } from '../../types';
 
-function getRoomCategory(target: number): { label: string; range: string } {
-  if (target >= 60) return { label: 'Large rooms (& specialty rooms)', range: '60+ people' };
-  if (target >= 30) return { label: 'Medium rooms (& specialty rooms)', range: '30–60 people' };
-  if (target >= 10) return { label: 'Small rooms', range: '10–30 people' };
-  return { label: 'Meeting rooms', range: '< 10 people' };
+// ── Room data ───────────────────────────────────────────────────────────────
+
+interface RoomGroup {
+  label: string;
+  note: string;
+  rooms: string[];
 }
 
-function RecommendationChip({ rec, preferred }: { rec: Recommendation; preferred: boolean }) {
+const COMP_LABS: { depts: string[]; rooms: string[]; note: string }[] = [
+  { depts: ['SFW', 'AMI'], rooms: ['G30', 'G31', '432', '433'], note: 'SFW · AMI' },
+  { depts: ['JMC', 'TCMA'], rooms: ['C07'], note: 'JMC · TCMA' },
+  { depts: ['AMI'], rooms: ['223', '233'], note: 'Graphic Design' },
+];
+
+function getRoomGroups(target: number, filterDepts: string[]): RoomGroup[] {
+  const groups: RoomGroup[] = [];
+
+  if (target >= 60) {
+    groups.push({ label: 'Large Rooms', note: '60+ seats', rooms: ['410', '434', '440', 'Forum'] });
+  } else if (target >= 30) {
+    groups.push({ label: 'Medium Rooms', note: '30–60 seats', rooms: ['G34', '220', '435'] });
+  } else if (target >= 10) {
+    groups.push({ label: 'Small Rooms', note: '10–30 seats', rooms: ['G35', 'G33', 'G32', '203', '305', '405'] });
+  } else {
+    groups.push({ label: 'Very Small Rooms', note: '< 10 seats', rooms: ['211', '212', '213', '340', '411'] });
+  }
+
+  // Append relevant computer labs when specific departments are in the filter
+  if (filterDepts.length > 0) {
+    for (const lab of COMP_LABS) {
+      if (lab.depts.some(d => filterDepts.includes(d))) {
+        // Avoid duplicating a lab group already added
+        if (!groups.some(g => g.label === 'Computer Labs' && g.note === lab.note)) {
+          groups.push({ label: 'Computer Labs', note: lab.note, rooms: lab.rooms });
+        }
+      }
+    }
+  }
+
+  return groups;
+}
+
+// ── Chips ───────────────────────────────────────────────────────────────────
+
+function SuggestionChip({ suggestion, preferred, stale, isBest }: {
+  suggestion: Suggestion;
+  preferred: boolean;
+  stale: boolean;
+  isBest: boolean;
+}) {
+  const dayLabel = suggestion.pairedDay
+    ? `${suggestion.day} / ${suggestion.pairedDay}`
+    : suggestion.day;
+  const sub = preferred ? 'text-blue-200' : 'text-blue-400';
+  const goldRing: React.CSSProperties = isBest
+    ? { outline: '2px solid #dba620', outlineOffset: '2px' }
+    : {};
+
   return (
-    <div className={`rounded-2xl p-3 flex flex-col gap-1 ${
-      preferred
-        ? 'bg-brand-blue text-white'
-        : 'bg-white border-2 border-brand-blue text-brand-blue'
-    }`}>
-      <div className="flex items-center justify-between">
-        <span className="text-sm font-bold leading-none">{rec.day}</span>
+    <div
+      className={`rounded-2xl p-3 flex flex-col gap-1 transition-opacity relative ${stale ? 'opacity-50' : ''} ${
+        preferred ? 'bg-brand-blue text-white' : 'bg-white border-2 border-brand-blue text-brand-blue'
+      }`}
+      style={goldRing}
+    >
+      {isBest && (
+        <span className="absolute top-2 right-2.5 text-brand-gold opacity-90">
+          <StarIcon className="w-3 h-3" />
+        </span>
+      )}
+      <div className="flex items-center justify-between pr-4">
+        <span className="text-sm font-bold leading-none">{dayLabel}</span>
         <span className={`text-base font-black leading-none ${preferred ? 'text-white' : 'text-brand-blue'}`}>
-          {Math.round(rec.freePercent)}%
+          {Math.round(suggestion.rawFreePercent)}%
         </span>
       </div>
       <div className="flex items-center gap-1.5 mt-0.5">
-        <span className="text-sm font-semibold leading-none">{rec.slot}</span>
-        <span className={`text-xs leading-none ${preferred ? 'text-blue-200' : 'text-blue-400'}`}>to</span>
-        <span className="text-sm font-semibold leading-none">{rec.endTime}</span>
+        <span className="text-sm font-semibold leading-none">{suggestion.startTime}</span>
+        <span className={`text-xs leading-none ${sub}`}>to</span>
+        <span className="text-sm font-semibold leading-none">{suggestion.endTime}</span>
       </div>
-      <span className={`text-xs leading-none ${preferred ? 'text-blue-200' : 'text-blue-400'}`}>
-        {rec.eligibleCount.toLocaleString()} eligible
+      <span className={`text-xs leading-none ${sub}`}>
+        ~{suggestion.onCampusCount.toLocaleString()} on campus
       </span>
     </div>
   );
@@ -41,6 +98,8 @@ function EmptyChip() {
   );
 }
 
+// ── Main component ──────────────────────────────────────────────────────────
+
 interface ResultsSectionProps {
   targetParticipants: number;
   mobileMode?: boolean;
@@ -48,12 +107,24 @@ interface ResultsSectionProps {
 }
 
 export default function ResultsSection({ targetParticipants, mobileMode = false, onViewHeatmap }: ResultsSectionProps) {
-  const { recommendations } = useResults();
-  const room = getRoomCategory(targetParticipants);
+  const { state } = useApp();
+  const { algorithmResult, isDirty, filters } = state;
 
-  const preferred = recommendations.slice(0, 2);
-  const alternatives = recommendations.slice(2, 4);
-  const hasAlts = alternatives.length > 0;
+  const suggestions   = algorithmResult?.suggestions ?? [];
+  const preferred     = suggestions.filter(s => s.rank === 'primary-mw' || s.rank === 'primary-tth');
+  const alternatives  = suggestions.filter(s => s.rank === 'alt-1' || s.rank === 'alt-2');
+  const bestScore     = suggestions.length > 0
+    ? Math.max(...suggestions.map(s => s.weightedScore))
+    : -Infinity;
+  const hasResults    = suggestions.length > 0;
+  const hasAlts       = alternatives.length > 0;
+  const targetMet     = algorithmResult?.targetMet ?? true;
+  const prefOverridden = algorithmResult?.prefOverridden ?? false;
+  const overrideReason = algorithmResult?.overrideReason;
+
+  // Dept codes explicitly named in any filter (empty = "all depts" → skip lab suggestions)
+  const filterDepts = [...new Set(filters.flatMap(f => f.depts))];
+  const roomGroups = getRoomGroups(targetParticipants, filterDepts);
 
   return (
     <div className="px-5 py-3 space-y-4">
@@ -66,42 +137,80 @@ export default function ResultsSection({ targetParticipants, mobileMode = false,
         </button>
       )}
 
+      {/* Stale notice */}
+      {isDirty && hasResults && (
+        <p className="text-xs text-amber-600 font-medium text-center bg-amber-50 rounded-lg py-1.5">
+          Results outdated — press Generate to refresh
+        </p>
+      )}
+
+      {/* Target feasibility / preference override notice */}
+      {!isDirty && hasResults && prefOverridden && (
+        <p className="text-xs text-blue-700 font-medium bg-blue-50 rounded-lg px-3 py-1.5 leading-snug">
+          ⚠ Time preference overridden to meet your participant target.
+          {overrideReason && ` ${overrideReason}`}
+        </p>
+      )}
+      {!isDirty && hasResults && !targetMet && !prefOverridden && overrideReason && (
+        <p className="text-xs text-red-600 font-medium bg-red-50 rounded-lg px-3 py-1.5 leading-snug">
+          ✕ Target unreachable: {overrideReason}
+        </p>
+      )}
+
+      {/* No results yet */}
+      {!hasResults && (
+        <p className="text-sm text-gray-400 italic text-center py-2">
+          Press Generate to find the best time.
+        </p>
+      )}
+
       {/* Preferred suggestions */}
-      <div>
-        <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Preferred</p>
-        <div className="grid grid-cols-2 gap-2">
-          {preferred.length > 0
-            ? preferred.map((rec, i) => <RecommendationChip key={i} rec={rec} preferred />)
-            : [<EmptyChip key={0} />, <EmptyChip key={1} />]
-          }
-          {preferred.length === 1 && <EmptyChip />}
+      {(hasResults || !hasResults) && (
+        <div>
+          <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Preferred</p>
+          <div className="grid grid-cols-2 gap-2">
+            {preferred.length > 0
+              ? preferred.map((s, i) => (
+                  <SuggestionChip key={i} suggestion={s} preferred stale={isDirty} isBest={s.weightedScore === bestScore} />
+                ))
+              : [<EmptyChip key={0} />, <EmptyChip key={1} />]
+            }
+            {preferred.length === 1 && <EmptyChip />}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Alternative suggestions */}
       {hasAlts && (
         <div>
           <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Alternatives</p>
           <div className="grid grid-cols-2 gap-2">
-            {alternatives.map((rec, i) => <RecommendationChip key={i} rec={rec} preferred={false} />)}
+            {alternatives.map((s, i) => (
+              <SuggestionChip key={i} suggestion={s} preferred={false} stale={isDirty} isBest={s.weightedScore === bestScore} />
+            ))}
             {alternatives.length === 1 && <EmptyChip />}
           </div>
         </div>
       )}
 
-      {recommendations.length === 0 && (
-        <p className="text-sm text-gray-400 italic text-center py-2">
-          No recommendations — adjust filters or selected days.
-        </p>
-      )}
-
-      {/* Recommended room category */}
-      <div>
-        <p className="text-sm font-semibold text-gray-600 mb-1.5">Recommended Rooms</p>
-        <div className="flex justify-between items-center text-sm text-gray-700 bg-brand-light-blue rounded-xl px-3 py-2.5">
-          <span className="font-medium">{room.label}</span>
-          <span className="text-gray-400 text-xs">{room.range}</span>
-        </div>
+      {/* Recommended rooms */}
+      <div className="space-y-3">
+        <p className="text-sm font-semibold text-gray-600">Recommended Rooms</p>
+        {roomGroups.map((group, i) => (
+          <div key={i}>
+            <div className="flex items-baseline justify-between mb-1.5">
+              <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">{group.label}</span>
+              <span className="text-xs text-gray-400">{group.note}</span>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {group.rooms.map(r => (
+                <span key={r} className="text-xs font-semibold bg-brand-light-blue text-brand-blue rounded-lg px-2.5 py-1 leading-none">
+                  {r}
+                </span>
+              ))}
+            </div>
+          </div>
+        ))}
       </div>
 
       <p className="text-xs text-gray-400 leading-relaxed">

@@ -1,11 +1,10 @@
-import type { ClassSlot } from './constants';
-
 export interface Student {
   id: string;
   dept: string;
-  year: 'Freshman' | 'Sophomore' | 'Junior' | 'Senior' | 'Masters 1st Year' | 'Masters 2nd Year';
+  year: string;
   international: boolean;
-  occupied: Set<string>; // "Mon-9:25" format
+  // Each class period this student attends: exact overlap-checkable intervals
+  periods: Array<{ day: string; startMin: number; endMin: number }>;
 }
 
 export interface Filter {
@@ -15,7 +14,6 @@ export interface Filter {
   status: 'any' | 'domestic' | 'international';
 }
 
-// Individual time periods — multiple can be selected; empty = any time
 export type TimePeriod = 'morning' | 'afternoon' | 'evening';
 
 export interface ChatMessage {
@@ -24,12 +22,36 @@ export interface ChatMessage {
   text: string;
 }
 
-export interface Recommendation {
+export interface Suggestion {
+  rank: 'primary-mw' | 'primary-tth' | 'alt-1' | 'alt-2';
   day: string;
-  slot: ClassSlot;
+  pairedDay?: string;
+  startTime: string;       // "HH:MM" — may be any time, not just class slot starts
   endTime: string;
-  freePercent: number;
-  eligibleCount: number;
+  weightedScore: number;
+  rawFreePercent: number;  // % of on-campus students free during the window
+  onCampusCount: number;   // # on-campus students free during the window
+  factors: {
+    timeWeight: number;
+    midEventDeparturePct: number;
+    lunchAdjust: number;
+    lunchPartialCount: number; // students who can attend the start but leave at 12:45
+  };
+}
+
+export interface AlgorithmResult {
+  suggestions: Suggestion[];
+  timestamp: number;
+  params: {
+    duration: number;
+    selectedDays: boolean[];
+    timePeriods: TimePeriod[];
+    targetParticipants: number;
+    filterCount: number;
+  };
+  targetMet: boolean;
+  prefOverridden: boolean;
+  overrideReason?: string;
 }
 
 export type MobileView = 'sidebar' | 'calendar' | 'chat';
