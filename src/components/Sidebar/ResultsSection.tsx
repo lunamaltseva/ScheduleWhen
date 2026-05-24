@@ -13,7 +13,7 @@ interface RoomGroup {
 const COMP_LABS: { depts: string[]; rooms: string[]; note: string }[] = [
   { depts: ['SFW', 'AMI'], rooms: ['G30', 'G31', '432', '433'], note: 'SFW · AMI' },
   { depts: ['JMC', 'TCMA'], rooms: ['C07'], note: 'JMC · TCMA' },
-  { depts: ['AMI'], rooms: ['223', '233'], note: 'Graphic Design' },
+  { depts: ['JMC', 'TCMA'], rooms: ['223', '233'], note: 'Graphic Design' },
 ];
 
 function getRoomGroups(target: number, filterDepts: string[]): RoomGroup[] {
@@ -23,17 +23,19 @@ function getRoomGroups(target: number, filterDepts: string[]): RoomGroup[] {
     groups.push({ label: 'Large Rooms', note: '60+ seats', rooms: ['410', '434', '440', 'Forum'] });
   } else if (target >= 30) {
     groups.push({ label: 'Medium Rooms', note: '30–60 seats', rooms: ['G34', '220', '435'] });
+    groups.push({ label: 'Large Rooms', note: '60+ seats (if needed)', rooms: ['410', '434', '440', 'Forum'] });
   } else if (target >= 10) {
     groups.push({ label: 'Small Rooms', note: '10–30 seats', rooms: ['G35', 'G33', 'G32', '203', '305', '405'] });
+    groups.push({ label: 'Medium Rooms', note: '30–60 seats (larger option)', rooms: ['G34', '220', '435'] });
   } else {
     groups.push({ label: 'Very Small Rooms', note: '< 10 seats', rooms: ['211', '212', '213', '340', '411'] });
+    groups.push({ label: 'Small Rooms', note: '10–30 seats (larger option)', rooms: ['G35', 'G33', 'G32', '203', '305', '405'] });
   }
 
   // Append relevant computer labs when specific departments are in the filter
   if (filterDepts.length > 0) {
     for (const lab of COMP_LABS) {
       if (lab.depts.some(d => filterDepts.includes(d))) {
-        // Avoid duplicating a lab group already added
         if (!groups.some(g => g.label === 'Computer Labs' && g.note === lab.note)) {
           groups.push({ label: 'Computer Labs', note: lab.note, rooms: lab.rooms });
         }
@@ -110,112 +112,110 @@ export default function ResultsSection({ targetParticipants, mobileMode = false,
   const { state } = useApp();
   const { algorithmResult, isDirty, filters } = state;
 
-  const suggestions   = algorithmResult?.suggestions ?? [];
-  const preferred     = suggestions.filter(s => s.rank === 'primary-mw' || s.rank === 'primary-tth');
-  const alternatives  = suggestions.filter(s => s.rank === 'alt-1' || s.rank === 'alt-2');
-  const bestScore     = suggestions.length > 0
-    ? Math.max(...suggestions.map(s => s.weightedScore))
-    : -Infinity;
-  const hasResults    = suggestions.length > 0;
-  const hasAlts       = alternatives.length > 0;
-  const targetMet     = algorithmResult?.targetMet ?? true;
+  const suggestions  = algorithmResult?.suggestions ?? [];
+  const preferred    = suggestions.filter(s => s.rank === 'primary-mw' || s.rank === 'primary-tth');
+  const alternatives = suggestions.filter(s => s.rank === 'alt-1' || s.rank === 'alt-2');
+  const bestScore    = suggestions.length > 0 ? Math.max(...suggestions.map(s => s.weightedScore)) : -Infinity;
+  const hasResults   = suggestions.length > 0;
+  const hasAlts      = alternatives.length > 0;
+
+  // Only show results when they exist and are fresh (not dirty)
+  const showResults  = hasResults && !isDirty;
+
+  const targetMet      = algorithmResult?.targetMet ?? true;
   const prefOverridden = algorithmResult?.prefOverridden ?? false;
   const overrideReason = algorithmResult?.overrideReason;
 
-  // Dept codes explicitly named in any filter (empty = "all depts" → skip lab suggestions)
   const filterDepts = [...new Set(filters.flatMap(f => f.depts))];
-  const roomGroups = getRoomGroups(targetParticipants, filterDepts);
+  const roomGroups  = getRoomGroups(targetParticipants, filterDepts);
 
   return (
     <div className="px-5 py-3 space-y-4">
       {mobileMode && onViewHeatmap && (
         <button
           onClick={onViewHeatmap}
-          className="w-full border border-brand-blue text-brand-blue rounded-xl py-2.5 text-sm font-semibold hover:bg-brand-light-blue transition-colors"
+          className="w-full border border-brand-blue text-brand-blue rounded-xl py-2.5 text-sm font-semibold hover:bg-brand-light-blue transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue"
         >
           View Heatmap →
         </button>
       )}
 
-      {/* Stale notice */}
-      {isDirty && hasResults && (
-        <p className="text-xs text-amber-600 font-medium text-center bg-amber-50 rounded-lg py-1.5">
-          Results outdated — press Generate to refresh
-        </p>
-      )}
-
-      {/* Target feasibility / preference override notice */}
-      {!isDirty && hasResults && prefOverridden && (
-        <p className="text-xs text-blue-700 font-medium bg-blue-50 rounded-lg px-3 py-1.5 leading-snug">
-          ⚠ Time preference overridden to meet your participant target.
-          {overrideReason && ` ${overrideReason}`}
-        </p>
-      )}
-      {!isDirty && hasResults && !targetMet && !prefOverridden && overrideReason && (
-        <p className="text-xs text-red-600 font-medium bg-red-50 rounded-lg px-3 py-1.5 leading-snug">
-          ✕ Target unreachable: {overrideReason}
-        </p>
-      )}
-
-      {/* No results yet */}
-      {!hasResults && (
+      {/* No results or outdated — identical prompt either way */}
+      {!showResults && (
         <p className="text-sm text-gray-400 italic text-center py-2">
           Press Generate to find the best time.
         </p>
       )}
 
-      {/* Preferred suggestions */}
-      {(hasResults || !hasResults) && (
-        <div>
-          <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Preferred</p>
-          <div className="grid grid-cols-2 gap-2">
-            {preferred.length > 0
-              ? preferred.map((s, i) => (
-                  <SuggestionChip key={i} suggestion={s} preferred stale={isDirty} isBest={s.weightedScore === bestScore} />
-                ))
-              : [<EmptyChip key={0} />, <EmptyChip key={1} />]
-            }
-            {preferred.length === 1 && <EmptyChip />}
-          </div>
-        </div>
-      )}
+      {showResults && (
+        <>
+          {/* Target feasibility / preference override notice */}
+          {prefOverridden && (
+            <p className="text-xs text-blue-700 font-medium bg-blue-50 rounded-lg px-3 py-1.5 leading-snug">
+              ⚠ Time preference overridden to meet your participant target.
+              {overrideReason && ` ${overrideReason}`}
+            </p>
+          )}
+          {!targetMet && !prefOverridden && overrideReason && (
+            <p className="text-xs text-red-600 font-medium bg-red-50 rounded-lg px-3 py-1.5 leading-snug">
+              ✕ Target unreachable: {overrideReason}
+            </p>
+          )}
 
-      {/* Alternative suggestions */}
-      {hasAlts && (
-        <div>
-          <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Alternatives</p>
-          <div className="grid grid-cols-2 gap-2">
-            {alternatives.map((s, i) => (
-              <SuggestionChip key={i} suggestion={s} preferred={false} stale={isDirty} isBest={s.weightedScore === bestScore} />
+          {/* Preferred suggestions */}
+          <div>
+            <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Preferred</p>
+            <div className="grid grid-cols-2 gap-2">
+              {preferred.length > 0
+                ? preferred.map((s, i) => (
+                    <SuggestionChip key={i} suggestion={s} preferred stale={false} isBest={s.weightedScore === bestScore} />
+                  ))
+                : [<EmptyChip key={0} />, <EmptyChip key={1} />]
+              }
+              {preferred.length === 1 && <EmptyChip />}
+            </div>
+          </div>
+
+          {/* Alternative suggestions */}
+          {hasAlts && (
+            <div>
+              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Alternatives</p>
+              <div className="grid grid-cols-2 gap-2">
+                {alternatives.map((s, i) => (
+                  <SuggestionChip key={i} suggestion={s} preferred={false} stale={false} isBest={s.weightedScore === bestScore} />
+                ))}
+                {alternatives.length === 1 && <EmptyChip />}
+              </div>
+            </div>
+          )}
+
+          {/* Recommended rooms */}
+          <div className="space-y-3">
+            <p className="text-sm font-semibold text-gray-600">Recommended Rooms</p>
+            {roomGroups.map((group, i) => (
+              <div key={i}>
+                <div className="flex items-baseline justify-between mb-1.5">
+                  <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">{group.label}</span>
+                  <span className="text-xs text-gray-400">{group.note}</span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {group.rooms.map(r => (
+                    <span key={r} className="text-xs font-semibold bg-brand-light-blue text-brand-blue rounded-lg px-2.5 py-1 leading-none">
+                      {r}
+                    </span>
+                  ))}
+                </div>
+              </div>
             ))}
-            {alternatives.length === 1 && <EmptyChip />}
           </div>
-        </div>
+
+          {/* Disclaimer */}
+          <div className="text-xs leading-relaxed rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 space-y-1 text-amber-900">
+            <p className="font-semibold">Rooms may not be available. Please confirm with the Registrar (Room 110).</p>
+            <p>Data is dated May 2026 and is synthetic.</p>
+          </div>
+        </>
       )}
-
-      {/* Recommended rooms */}
-      <div className="space-y-3">
-        <p className="text-sm font-semibold text-gray-600">Recommended Rooms</p>
-        {roomGroups.map((group, i) => (
-          <div key={i}>
-            <div className="flex items-baseline justify-between mb-1.5">
-              <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">{group.label}</span>
-              <span className="text-xs text-gray-400">{group.note}</span>
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {group.rooms.map(r => (
-                <span key={r} className="text-xs font-semibold bg-brand-light-blue text-brand-blue rounded-lg px-2.5 py-1 leading-none">
-                  {r}
-                </span>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <p className="text-xs text-gray-400 leading-relaxed">
-        Rooms may not be available. Please confirm with the Registrar (Room 110).
-      </p>
     </div>
   );
 }

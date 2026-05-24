@@ -14,7 +14,7 @@ function ExcelLoader() {
   useEffect(() => {
     loadStudentsFromExcel(`${import.meta.env.BASE_URL}Fall_2026_Students.xlsx`)
       .then(students => dispatch({ type: 'SET_STUDENTS', students }))
-      .catch(err => console.warn('Failed to load real schedule data, using synthetic fallback:', err));
+      .catch(() => dispatch({ type: 'SET_DATA_ERROR' }));
   }, [dispatch]);
 
   return null;
@@ -22,7 +22,7 @@ function ExcelLoader() {
 
 function DesktopLayout() {
   return (
-    <div className="flex h-screen overflow-hidden font-sans">
+    <div className="flex h-screen min-w-[800px] overflow-x-auto font-sans">
       <Sidebar />
       <CalendarView />
       <ChatBot />
@@ -44,11 +44,11 @@ function MobileLayout() {
 }
 
 function Layout() {
-  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 960);
 
   useEffect(() => {
     function handleResize() {
-      setIsMobile(window.innerWidth < 768);
+      setIsMobile(window.innerWidth < 960);
     }
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);

@@ -17,12 +17,12 @@ export default {
       },
       keyframes: {
         slideFromRight: {
-          from: { transform: 'translateX(48px)', opacity: '0' },
-          to:   { transform: 'translateX(0)',    opacity: '1' },
+          from: { transform: 'translateX(48px)', opacity: '0', filter: 'blur(8px)' },
+          to:   { transform: 'translateX(0)',    opacity: '1', filter: 'blur(0px)' },
         },
         slideFromLeft: {
-          from: { transform: 'translateX(-48px)', opacity: '0' },
-          to:   { transform: 'translateX(0)',     opacity: '1' },
+          from: { transform: 'translateX(-48px)', opacity: '0', filter: 'blur(8px)' },
+          to:   { transform: 'translateX(0)',     opacity: '1', filter: 'blur(0px)' },
         },
         modalIn: {
           from: { opacity: '0', transform: 'scale(0.95) translateY(-10px)' },
@@ -34,8 +34,8 @@ export default {
         },
       },
       animation: {
-        'slide-from-right': 'slideFromRight 0.22s ease-out',
-        'slide-from-left':  'slideFromLeft 0.22s ease-out',
+        'slide-from-right': 'slideFromRight 0.28s ease-out',
+        'slide-from-left':  'slideFromLeft 0.28s ease-out',
         'modal-in':         'modalIn 0.18s ease-out',
         'fade-in':          'fadeIn 0.15s ease-out',
       },

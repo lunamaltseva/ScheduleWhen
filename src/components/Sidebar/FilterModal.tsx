@@ -1,13 +1,15 @@
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useApp } from '../../context/AppContext';
-import { ALL_DEPTS, UG_YEARS, PG_YEARS } from '../../constants';
+import { UG_DEPTS, PG_DEPTS, ALL_DEPTS, UG_YEARS, PG_YEARS } from '../../constants';
 import { ChevronDown, XIcon } from '../Icons';
 import type { Filter } from '../../types';
 
 const UG_YEAR_LIST: string[] = [...UG_YEARS];
 const PG_YEAR_LIST: string[] = [...PG_YEARS];
 const ALL_YEAR_LIST: string[] = [...UG_YEARS, ...PG_YEARS];
+const UG_DEPT_LIST: string[] = [...UG_DEPTS];
+const PG_DEPT_LIST: string[] = [...PG_DEPTS];
 const ALL_DEPT_LIST: string[] = [...ALL_DEPTS];
 
 function genId() {
@@ -58,7 +60,7 @@ function FloatingDropdown({ anchor, isOpen, onClose, children }: FloatingDropdow
         left: anchor.left,
         width: anchor.width,
         zIndex: 9999,
-        maxHeight: '220px',
+        maxHeight: '320px',
         overflowY: 'auto',
       }}
       className="border border-brand-gray rounded-xl shadow-2xl bg-white"
@@ -256,16 +258,34 @@ export default function FilterModal() {
   function toggleDept(value: string) {
     setSelectedDepts(prev => {
       if (value === '__all__') return prev.length === ALL_DEPT_LIST.length ? [] : [...ALL_DEPT_LIST];
+      if (value === '__ug__') {
+        const allUg = UG_DEPT_LIST.every(d => prev.includes(d));
+        return allUg ? prev.filter(d => !UG_DEPT_LIST.includes(d)) : [...new Set([...prev, ...UG_DEPT_LIST])];
+      }
+      if (value === '__pg__') {
+        const allPg = PG_DEPT_LIST.every(d => prev.includes(d));
+        return allPg ? prev.filter(d => !PG_DEPT_LIST.includes(d)) : [...new Set([...prev, ...PG_DEPT_LIST])];
+      }
       return prev.includes(value) ? prev.filter(d => d !== value) : [...prev, value];
     });
   }
 
   const deptOptions: DropdownOption[] = [
     { value: '__all__', label: 'All', isMeta: true },
-    ...ALL_DEPT_LIST.map(d => ({ value: d, label: d })),
+    { value: '__ug__', label: 'Undergrad', isMeta: true },
+    ...UG_DEPT_LIST.map(d => ({ value: d, label: d, indent: true })),
+    { value: '__pg__', label: 'Masters', isMeta: true },
+    ...PG_DEPT_LIST.map(d => ({ value: d, label: d, indent: true })),
   ];
-  const deptSelected = selectedDepts.length === ALL_DEPT_LIST.length
-    ? ['__all__', ...selectedDepts] : selectedDepts;
+  const isAllDepts  = selectedDepts.length === ALL_DEPT_LIST.length;
+  const isAllUgDepts = UG_DEPT_LIST.every(d => selectedDepts.includes(d));
+  const isAllPgDepts = PG_DEPT_LIST.every(d => selectedDepts.includes(d));
+  const deptSelected = [
+    ...(isAllDepts   ? ['__all__'] : []),
+    ...(isAllUgDepts ? ['__ug__']  : []),
+    ...(isAllPgDepts ? ['__pg__']  : []),
+    ...selectedDepts,
+  ];
 
   // ── Year toggle ──────────────────────────────────────────────────────────
 

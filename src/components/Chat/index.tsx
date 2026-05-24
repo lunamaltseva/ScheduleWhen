@@ -1,98 +1,14 @@
-import { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect, useState, useCallback } from 'react';
 import { useApp } from '../../context/AppContext';
-import { buildExplanation } from '../../algorithm/score';
 import { ChevronUp, ChevronDown, ArrowLeft } from '../Icons';
-import type { AlgorithmResult, TimePeriod } from '../../types';
+import { streamAI, buildContextBlock } from '../../lib/ai';
 
-// TODO: Replace rule-based responses with the Claude API once VITE_ANTHROPIC_API_KEY is set.
-// Use @anthropic-ai/sdk with dangerouslyAllowBrowser: true. Pass algorithmResult + current state
-// as system context. Detect parameter override intents, dispatch them, then let the LLM narrate
-// the change and press Generate.
-
-type DispatchFn = ReturnType<typeof useApp>['dispatch'];
-
-function applyOverride(text: string, timePeriods: TimePeriod[], dispatch: DispatchFn): string | null {
-  const lower = text.toLowerCase();
-
-  // Duration: "60 minutes", "2 hours", "90 min"
-  const durMatch = lower.match(/(\d+)\s*(hours?|hrs?|minutes?|mins?)/);
-  if (durMatch) {
-    let minutes = parseInt(durMatch[1]);
-    if (/hours?|hrs?/.test(durMatch[2])) minutes *= 60;
-    if (minutes >= 15 && minutes <= 300) {
-      dispatch({ type: 'SET_DURATION', value: minutes });
-      return `I've set the duration to ${minutes} minutes. Press Generate to see updated results.`;
-    }
-  }
-
-  // Target participants: "30 people", "for 50 students", "50 attendees"
-  const targetMatch = lower.match(/(?:for\s+)?(\d+)\s*(?:people|students?|participants?|attendees?|persons?)/);
-  if (targetMatch) {
-    const target = parseInt(targetMatch[1]);
-    if (target >= 1 && target <= 2000) {
-      dispatch({ type: 'SET_TARGET', value: target });
-      return `I've updated the target to ${target} participants. Press Generate to see updated results.`;
-    }
-  }
-
-  // Time period: exclusively set one period
-  const periods: { keywords: string[]; value: TimePeriod; label: string }[] = [
-    { keywords: ['morning', 'early morning'],                value: 'morning',   label: 'morning (8:00–12:05)' },
-    { keywords: ['afternoon', 'midday', 'mid-day', 'noon'], value: 'afternoon', label: 'afternoon (12:45–16:50)' },
-    { keywords: ['evening', 'night', 'late afternoon'],      value: 'evening',   label: 'evening (17:00–21:05)' },
-  ];
-  for (const { keywords, value, label } of periods) {
-    if (keywords.some(k => lower.includes(k))) {
-      for (const active of timePeriods) {
-        if (active !== value) dispatch({ type: 'TOGGLE_TIME_PERIOD', value: active });
-      }
-      if (!timePeriods.includes(value)) dispatch({ type: 'TOGGLE_TIME_PERIOD', value });
-      return `I've set the time preference to ${label}. Press Generate to see updated results.`;
-    }
-  }
-
-  return null;
-}
-
-function getBotResponse(
-  text: string,
-  timePeriods: TimePeriod[],
-  algorithmResult: AlgorithmResult | null,
-  duration: number,
-  dispatch: DispatchFn,
-): string {
-  const lower = text.toLowerCase();
-
-  if (lower.includes('why') || lower.includes('explain')) {
-    return algorithmResult
-      ? buildExplanation(algorithmResult, duration)
-      : 'No results yet — press Generate first to get a recommendation.';
-  }
-
-  const override = applyOverride(text, timePeriods, dispatch);
-  if (override) return override;
-
-  if (lower.includes('room')) {
-    return 'Check the Recommended Rooms section in the sidebar. The category is based on your target participant count.';
-  }
-
-  if (lower.includes('when') || lower.includes('time') || lower.includes('slot') || lower.includes('best')) {
-    if (algorithmResult?.suggestions.length) {
-      const top = algorithmResult.suggestions[0];
-      const dayLabel = top.pairedDay ? `${top.day}/${top.pairedDay}` : top.day;
-      return `The top recommended slot is ${dayLabel} at ${top.startTime}–${top.endTime} (${Math.round(top.rawFreePercent)}% of on-campus students free). Press "Explain why" in the sidebar for a full breakdown.`;
-    }
-    return 'Press Generate to find the best time based on your current settings.';
-  }
-
-  if (lower.includes('filter')) {
-    return 'Filters let you scope which students are considered. Use "+ Add Filter" in the sidebar to target specific departments, years, or residency status.';
-  }
-
-  return "I can help you find the best meeting time. Try asking me to explain the current recommendation, change the duration (e.g. \"set it to 90 minutes\"), or adjust the target (e.g. \"for 40 students\").";
-}
-
-const TEMPLATE_PROMPT = 'What time works best for a 2-hour workshop?';
+const SUGGESTED_PROMPTS = [
+  'Why is this time slot recommended?',
+  'Are there good evening options?',
+  'What if I need a room for 40 people?',
+  'Can you suggest a time that avoids Monday?',
+];
 
 interface ChatBotProps {
   mobileMode?: boolean;
@@ -101,25 +17,58 @@ interface ChatBotProps {
 export default function ChatBot({ mobileMode = false }: ChatBotProps) {
   const { state, dispatch } = useApp();
   const [input, setInput] = useState('');
+  const [streamingText, setStreamingText] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const abortRef = useRef<boolean>(false);
 
   useEffect(() => {
-    if (state.chatOpen) {
+    if (state.chatOpen || mobileMode) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [state.chatMessages, state.chatOpen]);
+  }, [state.chatMessages, streamingText, state.chatOpen, mobileMode]);
 
-  function sendMessage(text: string) {
-    if (!text.trim()) return;
-    dispatch({ type: 'ADD_CHAT_MESSAGE', message: { id: Math.random().toString(36).slice(2), role: 'user', text: text.trim() } });
+  const sendMessage = useCallback(async (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed || streamingText !== null) return;
+
+    dispatch({
+      type: 'ADD_CHAT_MESSAGE',
+      message: { id: Math.random().toString(36).slice(2), role: 'user', text: trimmed },
+    });
     setInput('');
 
-    const { timePeriods, algorithmResult, duration } = state;
-    setTimeout(() => {
-      const botText = getBotResponse(text.trim(), timePeriods, algorithmResult, duration, dispatch);
-      dispatch({ type: 'ADD_CHAT_MESSAGE', message: { id: Math.random().toString(36).slice(2), role: 'bot', text: botText } });
-    }, 1000);
-  }
+    // Build API-format history (exclude streaming placeholder, map 'bot' → 'assistant')
+    const history = state.chatMessages.map(m => ({
+      role: (m.role === 'bot' ? 'assistant' : 'user') as 'user' | 'assistant',
+      content: m.text,
+    }));
+    history.push({ role: 'user', content: trimmed });
+
+    const contextBlock = buildContextBlock(state);
+
+    abortRef.current = false;
+    setStreamingText('');
+
+    let accumulated = '';
+    try {
+      for await (const chunk of streamAI(history, contextBlock)) {
+        if (abortRef.current) break;
+        accumulated += chunk;
+        setStreamingText(accumulated);
+      }
+    } catch {
+      accumulated = 'Sorry, something went wrong. Please try again.';
+      setStreamingText(null);
+    }
+
+    if (!abortRef.current) {
+      dispatch({
+        type: 'ADD_CHAT_MESSAGE',
+        message: { id: Math.random().toString(36).slice(2), role: 'bot', text: accumulated },
+      });
+    }
+    setStreamingText(null);
+  }, [state, dispatch, streamingText]);
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === 'Enter') sendMessage(input);
@@ -139,11 +88,12 @@ export default function ChatBot({ mobileMode = false }: ChatBotProps) {
         </div>
         <ChatBody
           messages={state.chatMessages}
+          streamingText={streamingText}
           input={input}
           setInput={setInput}
           onKeyDown={handleKeyDown}
+          onSend={sendMessage}
           messagesEndRef={messagesEndRef}
-          onTemplateClick={() => sendMessage(TEMPLATE_PROMPT)}
           mobileMode
         />
       </div>
@@ -154,23 +104,28 @@ export default function ChatBot({ mobileMode = false }: ChatBotProps) {
     <div className="fixed bottom-0 right-20 w-96 z-40 flex flex-col rounded-t-2xl overflow-hidden border border-white/40 shadow-2xl">
       <button
         onClick={() => dispatch({ type: 'TOGGLE_CHAT' })}
-        className="w-full bg-brand-blue text-white px-4 py-3 flex justify-between items-center hover:bg-blue-900 transition-colors flex-none"
+        aria-expanded={state.chatOpen}
+        aria-controls="chat-panel"
+        className="w-full bg-brand-blue text-white px-4 py-3 flex justify-between items-center hover:bg-blue-900 transition-colors flex-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-inset"
       >
         <span className="font-semibold text-sm">Assistant</span>
         {state.chatOpen ? <ChevronDown /> : <ChevronUp />}
       </button>
 
       <div
+        id="chat-panel"
         className="overflow-hidden transition-all duration-300"
         style={{ maxHeight: state.chatOpen ? '520px' : '0' }}
+        {...(!state.chatOpen ? { inert: '' } : {})}
       >
         <ChatBody
           messages={state.chatMessages}
+          streamingText={streamingText}
           input={input}
           setInput={setInput}
           onKeyDown={handleKeyDown}
+          onSend={sendMessage}
           messagesEndRef={messagesEndRef}
-          onTemplateClick={() => sendMessage(TEMPLATE_PROMPT)}
         />
       </div>
     </div>
@@ -179,58 +134,108 @@ export default function ChatBot({ mobileMode = false }: ChatBotProps) {
 
 interface ChatBodyProps {
   messages: { id: string; role: 'user' | 'bot'; text: string }[];
+  streamingText: string | null;
   input: string;
   setInput: (v: string) => void;
   onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+  onSend: (text: string) => void;
   messagesEndRef: React.RefObject<HTMLDivElement>;
-  onTemplateClick: () => void;
   mobileMode?: boolean;
 }
 
-function ChatBody({ messages, input, setInput, onKeyDown, messagesEndRef, onTemplateClick, mobileMode = false }: ChatBodyProps) {
+function ChatBody({
+  messages, streamingText, input, setInput, onKeyDown, onSend, messagesEndRef, mobileMode = false,
+}: ChatBodyProps) {
+  const isEmpty = messages.length === 0 && streamingText === null;
+  const isStreaming = streamingText !== null;
+
   return (
     <div className="bg-white flex flex-col" style={{ height: mobileMode ? '100%' : '480px' }}>
       <div className="flex-1 overflow-y-auto p-3 space-y-2 min-h-0">
-        {messages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full gap-2 text-center px-4">
-            <p className="text-sm font-semibold text-gray-700">What would you want to schedule?</p>
-            <button
-              onClick={onTemplateClick}
-              className="text-xs text-gray-400 italic hover:text-gray-600 transition-colors"
-            >
-              {TEMPLATE_PROMPT}
-            </button>
-          </div>
+        {isEmpty ? (
+          <EmptyState onSend={onSend} />
         ) : (
-          messages.map(m => (
-            <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div
-                className={`max-w-[85%] rounded-xl px-3 py-2 text-sm leading-snug ${
-                  m.role === 'user' ? 'bg-brand-gray text-black' : 'bg-brand-blue text-white'
-                }`}
-              >
-                {m.text}
-              </div>
-            </div>
-          ))
+          <>
+            {messages.map(m => (
+              <MessageBubble key={m.id} role={m.role} text={m.text} />
+            ))}
+            {isStreaming && (
+              <MessageBubble role="bot" text={streamingText || '…'} streaming />
+            )}
+          </>
         )}
         <div ref={messagesEndRef} />
       </div>
-      {messages.length > 0 && (
+
+      {!isEmpty && (
         <>
           <hr className="border-brand-gray" />
-          <p className="text-[10px] text-gray-400 px-3 py-1">Responses may contain mistakes. Use your judgment.</p>
+          <p className="text-[10px] text-gray-400 px-3 py-1">
+            Responses may contain mistakes. For room bookings, contact the Registrar (Room 110).
+          </p>
         </>
       )}
-      <div className="px-3 pb-3 pt-1">
+
+      <div className="px-3 pb-3 pt-1 flex gap-2">
         <input
           type="text"
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={onKeyDown}
-          placeholder="Ask something..."
-          className="w-full border border-brand-gray rounded-xl px-3 py-1.5 text-sm focus:outline-none focus:border-brand-blue"
+          placeholder={isStreaming ? 'Assistant is typing…' : 'Ask something…'}
+          disabled={isStreaming}
+          className="flex-1 border border-brand-gray rounded-xl px-3 py-1.5 text-sm focus:outline-none focus:border-brand-blue disabled:opacity-50"
         />
+        <button
+          onClick={() => onSend(input)}
+          disabled={isStreaming || !input.trim()}
+          className="px-3 py-1.5 bg-brand-blue text-white text-sm rounded-xl disabled:opacity-40 hover:bg-blue-900 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue"
+          aria-label="Send"
+        >
+          ↑
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function EmptyState({ onSend }: { onSend: (text: string) => void }) {
+  return (
+    <div className="flex flex-col items-center justify-center h-full gap-3 px-3 py-4">
+      <p className="text-sm font-semibold text-gray-700 text-center">What would you want to schedule?</p>
+      <div className="grid grid-cols-2 gap-2 w-full">
+        {SUGGESTED_PROMPTS.map(prompt => (
+          <button
+            key={prompt}
+            onClick={() => onSend(prompt)}
+            className="text-xs text-left text-gray-600 bg-gray-50 hover:bg-brand-light-blue border border-brand-gray rounded-lg px-2.5 py-2 transition-colors leading-snug"
+          >
+            {prompt}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function MessageBubble({
+  role, text, streaming = false,
+}: {
+  role: 'user' | 'bot';
+  text: string;
+  streaming?: boolean;
+}) {
+  return (
+    <div className={`flex ${role === 'user' ? 'justify-end' : 'justify-start'}`}>
+      <div
+        className={`max-w-[85%] rounded-xl px-3 py-2 text-sm leading-snug whitespace-pre-wrap ${
+          role === 'user' ? 'bg-brand-gray text-black' : 'bg-brand-blue text-white'
+        } ${streaming ? 'opacity-80' : ''}`}
+      >
+        {text}
+        {streaming && (
+          <span className="inline-block w-1.5 h-3.5 ml-0.5 bg-white/70 rounded-sm animate-pulse align-middle" />
+        )}
       </div>
     </div>
   );

@@ -49,15 +49,17 @@ const PRIORITY_MINUTES: Record<TimePeriod, [number, number]> = {
 
 function getTimeWeight(startMin: number): number {
   const h = startMin / 60;
-  if (h < 8.5)  return 0.55;
-  if (h < 10.5) return 0.85;
-  if (h < 12.0) return 0.95;
-  if (h < 15.0) return 1.00;
-  if (h < 16.5) return 0.95;
-  if (h < 17.5) return 0.85;
-  if (h < 19.0) return 0.72;
-  if (h < 20.5) return 0.55;
-  return 0.40;
+  // Campus is nearly empty in early morning; most students arrive from 9:25 onward.
+  // After the 15:35 class, attendance drops sharply as students leave for the day.
+  if (h < 8.5)  return 0.35; // campus barely active; almost no one has arrived
+  if (h < 9.5)  return 0.68; // people still arriving — momentum builds toward 9:25
+  if (h < 12.0) return 0.92; // mid-morning peak: classes in session, campus full
+  if (h < 15.0) return 1.00; // prime afternoon: largest on-campus population
+  if (h < 16.5) return 0.88; // late afternoon: still good but some have left
+  if (h < 17.5) return 0.65; // after 15:35 class ends, departure wave starts
+  if (h < 19.0) return 0.45; // evening: campus thinning out noticeably
+  if (h < 20.5) return 0.30; // late evening: only committed evening students remain
+  return 0.18;                // very late: campus nearly deserted
 }
 
 // ── Student-mix adjustment ─────────────────────────────────────────────────────
@@ -73,14 +75,14 @@ function getMixAdjust(onCampus: Student[], startMin: number): number {
   const ugFrac  = (onCampus.length - pgCount) / onCampus.length;
   const pgFrac  = pgCount / onCampus.length;
 
-  // Very early (before 9:25): UG unlikely, PG moderately so
-  if (startMin < 565) return Math.max(0.30, 1.0 - ugFrac * 0.35 - pgFrac * 0.20);
-  // Early (9:25–10:50): lighter morning penalty
-  if (startMin < 650) return Math.max(0.50, 1.0 - ugFrac * 0.15 - pgFrac * 0.08);
-  // Late evening (18:25+): UG students likely gone
-  if (startMin >= 1105) return Math.max(0.40, 1.0 - ugFrac * 0.30);
-  // Evening (17:00–18:25): lighter UG penalty
-  if (startMin >= 1020) return Math.max(0.60, 1.0 - ugFrac * 0.18);
+  // Very early (before 9:25): most UG/PG students haven't arrived yet
+  if (startMin < 565) return Math.max(0.22, 1.0 - ugFrac * 0.48 - pgFrac * 0.28);
+  // Early (9:25–10:50): still building — lighter morning penalty
+  if (startMin < 650) return Math.max(0.52, 1.0 - ugFrac * 0.22 - pgFrac * 0.12);
+  // Late evening (18:25+): UG largely gone after afternoon; PG also tapering off
+  if (startMin >= 1105) return Math.max(0.28, 1.0 - ugFrac * 0.50 - pgFrac * 0.28);
+  // Evening (17:00–18:25): post-afternoon departure wave, UG especially
+  if (startMin >= 1020) return Math.max(0.45, 1.0 - ugFrac * 0.32 - pgFrac * 0.18);
 
   return 1.0; // prime time
 }
@@ -161,7 +163,7 @@ function scoreWindow(
 ): WindowScore {
   const endMin    = startMin + duration;
   const onCampus  = eligible.filter(s => isOnCampus(s, day));
-  const total     = eligible.length || 1; // denominator = all students matching filter
+  const total     = onCampus.length || 1; // denominator = students on campus that day
 
   let freeCount         = 0;
   let midEventCount     = 0;

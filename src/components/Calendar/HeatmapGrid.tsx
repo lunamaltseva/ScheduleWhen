@@ -1,8 +1,10 @@
-import { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect, useState, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { useApp } from '../../context/AppContext';
 import { useResults } from '../../hooks/useResults';
+import type { HeatmapCellData } from '../../hooks/useResults';
 import { DAYS_FULL, GRID_ROWS, CLASS_SLOTS, TERMINAL_LABEL } from '../../constants';
-import { toMinutes } from '../../algorithm/score';
+import { toMinutes, addMinutes } from '../../algorithm/score';
 import type { Suggestion } from '../../types';
 import { StarIcon } from '../Icons';
 
@@ -39,6 +41,57 @@ function heatStyle(pct: number, min: number, max: number): React.CSSProperties {
   const g = Math.round(0x45 + (0xff - 0x45) * t);
   const b = Math.round(0x7c + (0xff - 0x7c) * t);
   return { backgroundColor: `rgb(${r},${g},${b})` };
+}
+
+// White background with a single red diagonal — used when nobody is on campus that day.
+const NO_CAMPUS_STYLE: React.CSSProperties = {
+  backgroundColor: '#ffffff',
+  backgroundImage:
+    'linear-gradient(to bottom right, transparent calc(50% - 0.75px), #fca5a5 calc(50% - 0.75px), #fca5a5 calc(50% + 0.75px), transparent calc(50% + 0.75px))',
+};
+
+// ── Heatmap tooltip ────────────────────────────────────────────────────────────
+
+interface TooltipState {
+  day: string;
+  slot: string;
+  data: HeatmapCellData;
+  x: number;
+  y: number;
+}
+
+const TOOLTIP_H = 118; // estimated tooltip height in px
+const HEADER_H  = 80;  // CalendarHeader (72px) + a little buffer
+
+function HeatmapTooltip({ tt }: { tt: TooltipState }) {
+  const endTime = addMinutes(tt.slot, 75);
+  const left    = Math.min(Math.max(tt.x - 110, 8), window.innerWidth - 228);
+  const topAbove = tt.y - TOOLTIP_H - 10;
+  const top     = topAbove >= HEADER_H ? topAbove : tt.y + 16; // flip below if too close to header
+
+  return createPortal(
+    <div
+      style={{ position: 'fixed', left, top, zIndex: 9999, pointerEvents: 'none', width: 220 }}
+      className="bg-white border border-brand-gray rounded-xl shadow-xl px-3 py-2.5 text-xs"
+    >
+      <p className="font-bold text-gray-800 mb-1.5">{tt.day} · {tt.slot}–{endTime}</p>
+      <div className="space-y-1 text-gray-600">
+        <div className="flex justify-between gap-2">
+          <span>On campus today</span>
+          <span className="font-semibold text-gray-800">{tt.data.onCampusDay.toLocaleString()}</span>
+        </div>
+        <div className="flex justify-between gap-2">
+          <span>Present at {tt.slot}</span>
+          <span className="font-semibold text-gray-800">~{tt.data.presentNow.toLocaleString()}</span>
+        </div>
+        <div className="flex justify-between gap-2">
+          <span>Available (filtered)</span>
+          <span className="font-semibold text-brand-blue">{tt.data.freePercent}%</span>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
 }
 
 const TOTAL_FR     = GRID_ROWS.reduce((sum, r) => sum + r.fr, 0); // 840 min = 8:00–22:00
@@ -122,8 +175,35 @@ function HeatmapChip({ suggestion, isBest }: { suggestion: Suggestion; isBest: b
 
 export default function HeatmapGrid() {
   const { state } = useApp();
-  const { heatmap } = useResults();
+  const { heatmap, cellData } = useResults();
   const prevOffsetRef = useRef(state.weekOffset);
+  const [tooltip, setTooltip] = useState<TooltipState | null>(null);
+
+  const showTooltip = useCallback((day: string, slot: string, data: HeatmapCellData, e: React.MouseEvent) => {
+    setTooltip({ day, slot, data, x: e.clientX, y: e.clientY });
+  }, []);
+  const moveTooltip = useCallback((e: React.MouseEvent) => {
+    setTooltip(prev => prev ? { ...prev, x: e.clientX, y: e.clientY } : null);
+  }, []);
+  const hideTooltip = useCallback(() => setTooltip(null), []);
+
+  // Loading / error gates — show overlay instead of grid
+  if (state.dataState === 'loading') {
+    return (
+      <div className="flex-1 flex items-center justify-center">
+        <p className="text-gray-400 text-sm">Loading student schedule data…</p>
+      </div>
+    );
+  }
+  if (state.dataState === 'error') {
+    return (
+      <div className="flex-1 flex items-center justify-center px-8 text-center">
+        <p className="text-gray-500 text-sm">
+          Schedule data could not be loaded. Please check your connection and reload the page.
+        </p>
+      </div>
+    );
+  }
 
   let slideClass = '';
   if (prevOffsetRef.current !== state.weekOffset) {
@@ -133,6 +213,9 @@ export default function HeatmapGrid() {
     prevOffsetRef.current = state.weekOffset;
   }
 
+  // Only show heatmap colors when results are fresh (not dirty, not first load)
+  const hasActiveResults = !state.isDirty && state.algorithmResult !== null;
+
   const activeDayIndices = state.selectedDays
     .map((on, i) => (on ? i : -1))
     .filter(i => i >= 0);
@@ -140,12 +223,14 @@ export default function HeatmapGrid() {
   // Compute min/max free% across active class-slot cells for the gradient
   let heatMin = 100;
   let heatMax = 0;
-  for (const dayIdx of activeDayIndices) {
-    const day = DAYS_FULL[dayIdx];
-    for (const slot of CLASS_SLOTS) {
-      const v = heatmap[`${day}-${slot}`] ?? 0;
-      if (v < heatMin) heatMin = v;
-      if (v > heatMax) heatMax = v;
+  if (hasActiveResults) {
+    for (const dayIdx of activeDayIndices) {
+      const day = DAYS_FULL[dayIdx];
+      for (const slot of CLASS_SLOTS) {
+        const v = heatmap[`${day}-${slot}`] ?? 0;
+        if (v < heatMin) heatMin = v;
+        if (v > heatMax) heatMax = v;
+      }
     }
   }
 
@@ -162,6 +247,7 @@ export default function HeatmapGrid() {
     : -Infinity;
 
   return (
+    <>
     <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
       <div key={state.weekOffset} className={`flex-1 flex flex-col min-h-0 ${slideClass}`}>
 
@@ -197,6 +283,8 @@ export default function HeatmapGrid() {
 
             {/* Background heatmap grid */}
             <div
+              role="grid"
+              aria-label="Availability heatmap"
               style={{
                 display: 'grid',
                 gridTemplateColumns: gridColTemplate,
@@ -215,7 +303,7 @@ export default function HeatmapGrid() {
                     {row.label && (
                       <span
                         className="text-xs font-medium text-gray-400 leading-none whitespace-nowrap absolute right-2"
-                        style={{ top: 0, transform: 'translateY(-50%)' }}
+                        style={{ top: 0, transform: rowIdx === 0 ? 'translateY(0)' : 'translateY(-50%)' }}
                       >
                         {row.label}
                       </span>
@@ -232,7 +320,7 @@ export default function HeatmapGrid() {
                       return (
                         <div
                           key={`break-${rowIdx}-${dayIdx}`}
-                          className="m-0.5 rounded-md bg-gray-100/60"
+                          className="m-0.5 rounded-md bg-white"
                           style={{ gridColumn: col, gridRow }}
                         />
                       );
@@ -247,17 +335,37 @@ export default function HeatmapGrid() {
                         />
                       );
                     }
+                    const cellLabel = key
+                      ? hasActiveResults
+                        ? `${day} ${row.slot}: ${pct}% free`
+                        : `${day} ${row.slot}: press Generate to see availability`
+                      : undefined;
+                    const cd = key ? cellData[key] : undefined;
+                    const noCampus = hasActiveResults && cd !== undefined && cd.totalOnCampus === 0;
+                    const cellStyle: React.CSSProperties = {
+                      gridColumn: col,
+                      gridRow,
+                      ...(hasActiveResults
+                        ? noCampus
+                          ? NO_CAMPUS_STYLE
+                          : heatStyle(pct, heatMin, heatMax)
+                        : {}),
+                    };
                     return (
                       <div
                         key={`cell-${rowIdx}-${dayIdx}`}
-                        className="m-0.5 rounded-lg transition-colors"
-                        style={{
-                          gridColumn: col,
-                          gridRow,
-                          ...heatStyle(pct, heatMin, heatMax),
-                        }}
-                        title={key ? `${day} ${row.slot}: ${pct}% free (on-campus students)` : undefined}
-                      />
+                        role="gridcell"
+                        aria-label={cellLabel}
+                        className="m-0.5 rounded-lg transition-colors cursor-default"
+                        style={cellStyle}
+                        onMouseEnter={hasActiveResults && cd ? e => showTooltip(day, row.slot!, cd, e) : undefined}
+                        onMouseMove={hasActiveResults && cd ? moveTooltip : undefined}
+                        onMouseLeave={hasActiveResults && cd ? hideTooltip : undefined}
+                      >
+                        {hasActiveResults && (
+                          <span className="sr-only">{noCampus ? 'no students on campus' : `${pct}%`}</span>
+                        )}
+                      </div>
                     );
                   }),
                 ];
@@ -315,5 +423,8 @@ export default function HeatmapGrid() {
 
       </div>
     </div>
+
+    {tooltip && <HeatmapTooltip tt={tooltip} />}
+    </>
   );
 }

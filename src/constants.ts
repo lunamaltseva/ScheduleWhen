@@ -32,7 +32,7 @@ export const GRID_ROWS: readonly GridRowDef[] = [
   { kind: 'class', fr: 75, label: '18:25', slot: '18:25' },
   { kind: 'break', fr: 10                                  },
   { kind: 'class', fr: 75, label: '19:50', slot: '19:50' },
-  { kind: 'gap',   fr: 55                                  },  // 21:05–22:00
+  { kind: 'gap',   fr: 55, label: '21:05'                  },  // 21:05–22:00
 ];
 
 export const TERMINAL_LABEL = '22:00';
@@ -46,11 +46,17 @@ export const PRIORITY_RANGES: Record<string, readonly number[]> = {
   evening:   [6, 7, 8],
 };
 
-export const ALL_DEPTS = [
+export const UG_DEPTS = [
   'AMI', 'ANTH', 'BA', 'ECO', 'ESCS', 'IBL', 'ICP', 'JMC',
   'LAS', 'LAS-DC', 'LAS-ES', 'LAS-HR', 'LAS-MC', 'LAS-MM', 'LAS-PC', 'LAS-SEDT', 'LAS-UPD',
-  'LLM', 'MAANTH', 'MACAS', 'MAPAP', 'MAT', 'MBA', 'MSECO', 'PSY', 'SFW', 'SOC', 'TCMA',
+  'PSY', 'SFW', 'SOC', 'TCMA',
 ] as const;
+
+export const PG_DEPTS = [
+  'LLM', 'MAANTH', 'MACAS', 'MAPAP', 'MAT', 'MBA', 'MSECO',
+] as const;
+
+export const ALL_DEPTS = [...UG_DEPTS, ...PG_DEPTS] as const;
 
 export const UG_YEARS = ['Freshman', 'Sophomore', 'Junior', 'Senior'] as const;
 export const PG_YEARS = ['Masters 1st Year', 'Masters 2nd Year'] as const;

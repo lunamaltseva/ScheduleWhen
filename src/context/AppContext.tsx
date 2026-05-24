@@ -1,7 +1,6 @@
 import { createContext, useContext, useReducer, type ReactNode } from 'react';
 import type { Filter, TimePeriod, ChatMessage, MobileView, ModalState, AlgorithmResult, Student } from '../types';
 import { SEMESTER_START, SEMESTER_END } from '../constants';
-import { STUDENTS } from '../data/synthetic';
 
 // ── State ──────────────────────────────────────────────────────────────────────
 
@@ -21,9 +20,10 @@ export interface AppState {
   // Algorithm
   isDirty: boolean;                  // true = Generate button should be shown
   algorithmResult: AlgorithmResult | null;
-  // Student data (starts as synthetic, replaced by Excel load)
+  autoRegen: boolean;                // re-run algorithm automatically on param changes
+  // Student data — empty until Excel loads
   students: Student[];
-  studentsLoaded: boolean;
+  dataState: 'loading' | 'loaded' | 'error';
 }
 
 // ── Actions ────────────────────────────────────────────────────────────────────
@@ -45,7 +45,9 @@ type Action =
   | { type: 'SET_MODAL'; modal: ModalState }
   | { type: 'SET_DELETING_FILTER'; id: string | null }
   | { type: 'SET_ALGORITHM_RESULT'; result: AlgorithmResult }
-  | { type: 'SET_STUDENTS'; students: Student[] };
+  | { type: 'TOGGLE_AUTO_REGEN' }
+  | { type: 'SET_STUDENTS'; students: Student[] }
+  | { type: 'SET_DATA_ERROR' };
 
 // Parameter-changing actions that invalidate the current algorithm result
 const DIRTY_ACTIONS = new Set([
@@ -86,8 +88,9 @@ const initialState: AppState = {
   deletingFilterId: null,
   isDirty: true,
   algorithmResult: null,
-  students: STUDENTS,
-  studentsLoaded: false,
+  autoRegen: false,
+  students: [],
+  dataState: 'loading',
 };
 
 // ── Reducer ────────────────────────────────────────────────────────────────────
@@ -158,8 +161,14 @@ function innerReducer(state: AppState, action: Action): AppState {
     case 'SET_ALGORITHM_RESULT':
       return { ...state, algorithmResult: action.result, isDirty: false };
 
+    case 'TOGGLE_AUTO_REGEN':
+      return { ...state, autoRegen: !state.autoRegen };
+
     case 'SET_STUDENTS':
-      return { ...state, students: action.students, studentsLoaded: true };
+      return { ...state, students: action.students, dataState: 'loaded' };
+
+    case 'SET_DATA_ERROR':
+      return { ...state, dataState: 'error' };
   }
 }
 

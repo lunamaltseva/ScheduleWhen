@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { useApp } from '../../context/AppContext';
 import SidebarHeader from './SidebarHeader';
 import EventSpec from './EventSpec';
@@ -24,9 +25,16 @@ interface SidebarProps {
 
 export default function Sidebar({ mobileMode = false }: SidebarProps) {
   const { state, dispatch } = useApp();
+  const resultsRef = useRef<HTMLDivElement>(null);
+
+  function scrollToResults() {
+    setTimeout(() => {
+      resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 50);
+  }
 
   return (
-    <aside className={`${mobileMode ? 'w-full' : 'w-1/5'} flex flex-col h-full overflow-hidden border-r border-brand-gray bg-white`}>
+    <aside className={`${mobileMode ? 'w-full' : 'w-1/5 min-w-[260px]'} flex flex-col h-full overflow-hidden border-r border-brand-gray bg-white`}>
       <SidebarHeader />
 
       {mobileMode && (
@@ -47,18 +55,20 @@ export default function Sidebar({ mobileMode = false }: SidebarProps) {
         <SectionLabel>Filters</SectionLabel>
         <FiltersSection />
         <Separator />
+        <div ref={resultsRef}>
         <SectionLabel>Results</SectionLabel>
         <ResultsSection
           targetParticipants={state.targetParticipants}
           mobileMode={mobileMode}
           onViewHeatmap={() => dispatch({ type: 'SET_MOBILE_VIEW', view: 'calendar' })}
         />
+        </div>
         <div className="h-2" />
       </div>
 
       {/* Generate / Explain why — docked at the bottom */}
       <div className="flex-none border-t border-brand-gray px-5 py-4">
-        <GenerateButton mobileMode={mobileMode} />
+        <GenerateButton mobileMode={mobileMode} onAfterGenerate={scrollToResults} />
       </div>
 
       {state.activeModal !== null && <FilterModal />}

@@ -1,5 +1,5 @@
 import { useApp } from '../../context/AppContext';
-import { ArrowLeft } from '../Icons';
+import { ArrowLeft, ChevronLeft, ChevronRight } from '../Icons';
 import { SEMESTER_START, SEMESTER_END } from '../../constants';
 
 const MONTHS = [
@@ -46,6 +46,13 @@ function getWeeksAheadLabel(offset: number): string {
   return `${offset} week${offset === 1 ? '' : 's'} ahead`;
 }
 
+function getSemesterWeek(offset: number): number | null {
+  const monday = getWeekMonday(offset);
+  const diffMs = monday.getTime() - SEMESTER_START.getTime();
+  if (diffMs < 0) return null;
+  return Math.floor(diffMs / MS_PER_WEEK) + 1;
+}
+
 interface CalendarHeaderProps {
   showBackButton?: boolean;
 }
@@ -56,6 +63,7 @@ export default function CalendarHeader({ showBackButton = false }: CalendarHeade
 
   const canGoBack = state.weekOffset > minOffset;
   const canGoForward = state.weekOffset < maxOffset;
+  const semesterWeek = getSemesterWeek(state.weekOffset);
 
   function setOffset(v: number) {
     dispatch({ type: 'SET_WEEK_OFFSET', value: Math.min(Math.max(v, minOffset), maxOffset) });
@@ -81,7 +89,7 @@ export default function CalendarHeader({ showBackButton = false }: CalendarHeade
           <div className="flex items-center gap-3">
             <button
               onClick={() => setOffset(minOffset)}
-              className="h-9 flex items-center bg-white text-brand-blue text-sm font-bold px-4 rounded-full hover:bg-blue-50 transition-colors shadow-sm"
+              className="h-9 flex items-center bg-white text-brand-blue text-sm font-bold px-4 rounded-full hover:bg-blue-50 transition-colors shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
             >
               Today
             </button>
@@ -89,21 +97,26 @@ export default function CalendarHeader({ showBackButton = false }: CalendarHeade
               <button
                 onClick={() => setOffset(state.weekOffset - 1)}
                 disabled={!canGoBack}
-                className="h-full flex items-center bg-white text-brand-blue px-3.5 text-base font-bold border-r border-brand-gray/40 hover:bg-blue-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                className="h-full flex items-center justify-center bg-white text-brand-blue px-3 border-r border-brand-gray/40 hover:bg-blue-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-blue/50"
                 aria-label="Previous week"
               >
-                ‹
+                <ChevronLeft className="w-4 h-4" />
               </button>
               <button
                 onClick={() => setOffset(state.weekOffset + 1)}
                 disabled={!canGoForward}
-                className="h-full flex items-center bg-white text-brand-blue px-3.5 text-base font-bold hover:bg-blue-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                className="h-full flex items-center justify-center bg-white text-brand-blue px-3 hover:bg-blue-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-blue/50"
                 aria-label="Next week"
               >
-                ›
+                <ChevronRight className="w-4 h-4" />
               </button>
             </div>
             <p className="text-white text-base font-bold">{getMonthLabel(state.weekOffset)}</p>
+            {semesterWeek !== null && (
+              <span className="text-xs font-semibold bg-white/20 text-white px-2.5 py-1 rounded-full leading-none">
+                Week {semesterWeek}
+              </span>
+            )}
           </div>
 
           {/* Right: weeks ahead */}
