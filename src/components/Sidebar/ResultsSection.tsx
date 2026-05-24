@@ -23,13 +23,13 @@ function getRoomGroups(target: number, filterDepts: string[]): RoomGroup[] {
     groups.push({ label: 'Large Rooms', note: '60+ seats', rooms: ['410', '434', '440', 'Forum'] });
   } else if (target >= 30) {
     groups.push({ label: 'Medium Rooms', note: '30–60 seats', rooms: ['G34', '220', '435'] });
-    groups.push({ label: 'Large Rooms', note: '60+ seats (if needed)', rooms: ['410', '434', '440', 'Forum'] });
+    groups.push({ label: 'Large Rooms', note: '60+ seats', rooms: ['410', '434', '440', 'Forum'] });
   } else if (target >= 10) {
     groups.push({ label: 'Small Rooms', note: '10–30 seats', rooms: ['G35', 'G33', 'G32', '203', '305', '405'] });
-    groups.push({ label: 'Medium Rooms', note: '30–60 seats (larger option)', rooms: ['G34', '220', '435'] });
+    groups.push({ label: 'Medium Rooms', note: '30–60 seats', rooms: ['G34', '220', '435'] });
   } else {
     groups.push({ label: 'Very Small Rooms', note: '< 10 seats', rooms: ['211', '212', '213', '340', '411'] });
-    groups.push({ label: 'Small Rooms', note: '10–30 seats (larger option)', rooms: ['G35', 'G33', 'G32', '203', '305', '405'] });
+    groups.push({ label: 'Small Rooms', note: '10–30 seats', rooms: ['G35', 'G33', 'G32', '203', '305', '405'] });
   }
 
   // Append relevant computer labs when specific departments are in the filter
@@ -164,7 +164,7 @@ export default function ResultsSection({ targetParticipants, mobileMode = false,
 
           {/* Preferred suggestions */}
           <div>
-            <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Preferred</p>
+            <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Recommended</p>
             <div className="grid grid-cols-2 gap-2">
               {preferred.length > 0
                 ? preferred.map((s, i) => (
@@ -179,7 +179,7 @@ export default function ResultsSection({ targetParticipants, mobileMode = false,
           {/* Alternative suggestions */}
           {hasAlts && (
             <div>
-              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Alternatives</p>
+              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Suggested</p>
               <div className="grid grid-cols-2 gap-2">
                 {alternatives.map((s, i) => (
                   <SuggestionChip key={i} suggestion={s} preferred={false} stale={false} isBest={s.weightedScore === bestScore} />
@@ -210,9 +210,9 @@ export default function ResultsSection({ targetParticipants, mobileMode = false,
           </div>
 
           {/* Disclaimer */}
-          <div className="text-xs leading-relaxed rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 space-y-1 text-amber-900">
+          <div className="text-xs leading-relaxed rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 space-y-1 text-red-900">
             <p className="font-semibold">Rooms may not be available. Please confirm with the Registrar (Room 110).</p>
-            <p>Data is dated May 2026 and is synthetic.</p>
+            <p>Data is synthetic and was mined on May 21st, 2026</p>
           </div>
         </>
       )}

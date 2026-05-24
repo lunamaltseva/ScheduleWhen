@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { DAYS_SHORT } from '../../constants';
 import { SunriseIcon, SunIcon, MoonIcon } from '../Icons';
@@ -39,9 +39,14 @@ const PRIORITY_OPTIONS: { value: TimePeriod; icon: React.ReactNode; label: strin
 export default function EventSpec() {
   const { state, dispatch } = useApp();
   const [dateText, setDateText] = useState(() => isoToDisplay(state.timeframeFrom));
-  // Local string state lets the user clear the field while editing
+  // Local string state lets the user clear the field while editing.
+  // useEffect keeps them in sync when the AI or another source changes context.
   const [durationText, setDurationText] = useState(() => String(state.duration));
   const [targetText, setTargetText]     = useState(() => String(state.targetParticipants));
+
+  useEffect(() => { setDurationText(String(state.duration)); }, [state.duration]);
+  useEffect(() => { setTargetText(String(state.targetParticipants)); }, [state.targetParticipants]);
+  useEffect(() => { setDateText(isoToDisplay(state.timeframeFrom)); }, [state.timeframeFrom]);
 
   // ── Date ──────────────────────────────────────────────────────────────────
   function handleDateChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -53,7 +58,12 @@ export default function EventSpec() {
     const match = formatted.match(/^(\d{2})\/(\d{2})\/(\d{2})$/);
     if (match) {
       const [, d, m, y] = match;
-      dispatch({ type: 'SET_TIMEFRAME', value: `20${y}-${m}-${d}` });
+      const iso = `20${y}-${m}-${d}`;
+      const parsed = new Date(iso);
+      // Reject invalid calendar dates (e.g. 31/13/26, 30/02/26)
+      if (!isNaN(parsed.getTime()) && parsed.toISOString().startsWith(iso)) {
+        dispatch({ type: 'SET_TIMEFRAME', value: iso });
+      }
     }
   }
 
@@ -63,16 +73,16 @@ export default function EventSpec() {
     setDurationText(raw);
     const n = parseInt(raw, 10);
     if (!isNaN(n)) {
-      dispatch({ type: 'SET_DURATION', value: Math.min(1440, Math.max(0, n)) });
+      dispatch({ type: 'SET_DURATION', value: Math.min(840, Math.max(1, n)) });
     }
   }
 
   function handleDurationBlur() {
     const n = parseInt(durationText, 10);
-    if (isNaN(n)) {
+    if (isNaN(n) || n < 1) {
       setDurationText(String(state.duration)); // revert to last committed value
     } else {
-      const clamped = Math.min(1440, Math.max(0, n));
+      const clamped = Math.min(840, Math.max(1, n));
       setDurationText(String(clamped));
       dispatch({ type: 'SET_DURATION', value: clamped });
     }
@@ -83,7 +93,7 @@ export default function EventSpec() {
     const raw = e.target.value;
     setTargetText(raw);
     const n = parseInt(raw, 10);
-    if (!isNaN(n) && n >= 1) {
+    if (!isNaN(n) && n >= 1 && n <= 5000) {
       dispatch({ type: 'SET_TARGET', value: n });
     }
   }
@@ -93,8 +103,9 @@ export default function EventSpec() {
     if (isNaN(n) || n < 1) {
       setTargetText(String(state.targetParticipants)); // revert
     } else {
-      setTargetText(String(n));
-      dispatch({ type: 'SET_TARGET', value: n });
+      const clamped = Math.min(5000, Math.max(1, n));
+      setTargetText(String(clamped));
+      dispatch({ type: 'SET_TARGET', value: clamped });
     }
   }
 
@@ -103,8 +114,8 @@ export default function EventSpec() {
       <Row label="Duration">
         <input
           type="number"
-          min={0}
-          max={1440}
+          min={1}
+          max={840}
           value={durationText}
           onChange={handleDurationChange}
           onBlur={handleDurationBlur}
@@ -115,7 +126,7 @@ export default function EventSpec() {
 
       {/* Consider Days — standalone section, no Row wrapper */}
       <div>
-        <p className="text-sm font-semibold text-gray-600 mb-2">Consider Days</p>
+        <p className="text-sm font-semibold text-gray-600 mb-2">Select from</p>
         <div className="flex gap-2 justify-center">
           {DAYS_SHORT.map((label, i) => (
             <button
@@ -135,7 +146,7 @@ export default function EventSpec() {
 
       {/* Priority — multi-select, standalone section */}
       <div>
-        <p className="text-sm font-semibold text-gray-600 mb-2">Priority</p>
+        <p className="text-sm font-semibold text-gray-600 mb-2">Prioritize</p>
         <div className="flex gap-2">
           {PRIORITY_OPTIONS.map(opt => {
             const active = state.timePeriods.includes(opt.value);
@@ -158,7 +169,7 @@ export default function EventSpec() {
         </div>
       </div>
 
-      <Row label="From">
+      <Row label="Starting from">
         <input
           type="text"
           value={dateText}
@@ -169,10 +180,11 @@ export default function EventSpec() {
         />
       </Row>
 
-      <Row label="Target">
+      <Row label="Aim for">
         <input
           type="number"
           min={1}
+          max={5000}
           value={targetText}
           onChange={handleTargetChange}
           onBlur={handleTargetBlur}

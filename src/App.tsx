@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { AppProvider } from './context/AppContext';
 import { useApp } from './context/AppContext';
 import { loadStudentsFromExcel } from './data/loader';
+import { loadCalendar } from './data/parseCalendar';
 import Sidebar from './components/Sidebar';
 import CalendarView from './components/Calendar';
 import ChatBot from './components/Chat';
@@ -17,6 +18,16 @@ function ExcelLoader() {
       .catch(() => dispatch({ type: 'SET_DATA_ERROR' }));
   }, [dispatch]);
 
+  return null;
+}
+
+function CalendarLoader() {
+  const { dispatch } = useApp();
+  useEffect(() => {
+    loadCalendar(`${import.meta.env.BASE_URL}academic-calendar.ics`)
+      .then(events => dispatch({ type: 'SET_ACADEMIC_EVENTS', events }))
+      .catch(() => {}); // non-critical — silently skip if unavailable
+  }, [dispatch]);
   return null;
 }
 
@@ -61,6 +72,7 @@ export default function App() {
   return (
     <AppProvider>
       <ExcelLoader />
+      <CalendarLoader />
       <Layout />
     </AppProvider>
   );

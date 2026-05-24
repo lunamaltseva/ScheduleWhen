@@ -2,11 +2,11 @@ import { useRef, useEffect, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useApp } from '../../context/AppContext';
 import { useResults } from '../../hooks/useResults';
-import type { HeatmapCellData } from '../../hooks/useResults';
-import { DAYS_FULL, GRID_ROWS, CLASS_SLOTS, TERMINAL_LABEL } from '../../constants';
-import { toMinutes, addMinutes } from '../../algorithm/score';
+import { DAYS_FULL, GRID_ROWS, CLASS_SLOTS, TERMINAL_LABEL, SEMESTER_START_ISO, SEMESTER_END_ISO } from '../../constants';
+import { toMinutes, fromMinutes, STD_TO_50MIN } from '../../algorithm/score';
 import type { Suggestion } from '../../types';
 import { StarIcon } from '../Icons';
+import AllDayRow from './AllDayRow';
 
 function getWeekMonday(offset: number): Date {
   const now = new Date();
@@ -32,63 +32,96 @@ function isToday(date: Date): boolean {
   );
 }
 
-// Gradient from dark-blue (#2d457c) at 0% free → white (#ffffff) at 100% free,
-// normalized over the actual min–max range so local contrast is maximised.
+function localDateToISO(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+// White (#ffffff) at min availability → brand-blue (#2d457c) at max availability,
+// normalized over the actual range so local contrast is maximised.
 function heatStyle(pct: number, min: number, max: number): React.CSSProperties {
   if (max <= min) return { backgroundColor: '#ffffff' };
   const t = Math.max(0, Math.min(1, (pct - min) / (max - min)));
-  const r = Math.round(0x2d + (0xff - 0x2d) * t);
-  const g = Math.round(0x45 + (0xff - 0x45) * t);
-  const b = Math.round(0x7c + (0xff - 0x7c) * t);
+  const r = Math.round(0xff + (0x2d - 0xff) * t);
+  const g = Math.round(0xff + (0x45 - 0xff) * t);
+  const b = Math.round(0xff + (0x7c - 0xff) * t);
   return { backgroundColor: `rgb(${r},${g},${b})` };
 }
 
-// White background with a single red diagonal — used when nobody is on campus that day.
-const NO_CAMPUS_STYLE: React.CSSProperties = {
-  backgroundColor: '#ffffff',
-  backgroundImage:
-    'linear-gradient(to bottom right, transparent calc(50% - 0.75px), #fca5a5 calc(50% - 0.75px), #fca5a5 calc(50% + 0.75px), transparent calc(50% + 0.75px))',
-};
-
 // ── Heatmap tooltip ────────────────────────────────────────────────────────────
 
+interface LiveMetrics {
+  onCampus: number;        // present at the exact cursor minute
+  onCampusAllDay: number;  // has any class on this day (on campus at some point)
+  free: number;            // present AND not in class at cursor minute
+  total: number;           // total eligible students
+}
+
 interface TooltipState {
+  timeMin: number; // continuous time at cursor (minutes from midnight)
   day: string;
-  slot: string;
-  data: HeatmapCellData;
+  liveMetrics: LiveMetrics;
   x: number;
   y: number;
 }
 
-const TOOLTIP_H = 118; // estimated tooltip height in px
-const HEADER_H  = 80;  // CalendarHeader (72px) + a little buffer
+const TOOLTIP_H = 120; // estimated tooltip height in px
+const HEADER_H  = 80; // CalendarHeader (72px) + a little buffer
 
-function HeatmapTooltip({ tt }: { tt: TooltipState }) {
-  const endTime = addMinutes(tt.slot, 75);
-  const left    = Math.min(Math.max(tt.x - 110, 8), window.innerWidth - 228);
+function HeatmapTooltip({ tt, noClassesDays }: { tt: TooltipState; noClassesDays: Set<string> }) {
+  const { timeMin, day, liveMetrics } = tt;
+  const timeStr    = fromMinutes(Math.floor(timeMin));
+  const isNoClasses = noClassesDays.has(day);
+  const freePercent = liveMetrics.total > 0
+    ? Math.round(liveMetrics.free / liveMetrics.total * 100)
+    : 0;
+
+  // Contextual label for non-class periods (standard schedule boundaries)
+  let periodLabel: string | null = null;
+  if (!isNoClasses) {
+    const inSlot = CLASS_SLOTS.some(s => { const sm = toMinutes(s); return timeMin >= sm && timeMin < sm + 75; });
+    if (!inSlot) {
+      if (timeMin >= 725 && timeMin < 765)  periodLabel = 'Lunch break';
+      else if (timeMin >= 1265)              periodLabel = 'Evening — no scheduled classes';
+      else                                   periodLabel = 'Break between classes';
+    }
+  }
+
+  const left     = Math.min(Math.max(tt.x - 110, 8), window.innerWidth - 228);
   const topAbove = tt.y - TOOLTIP_H - 10;
-  const top     = topAbove >= HEADER_H ? topAbove : tt.y + 16; // flip below if too close to header
+  const top      = topAbove >= HEADER_H ? topAbove : tt.y + 16;
 
   return createPortal(
     <div
       style={{ position: 'fixed', left, top, zIndex: 9999, pointerEvents: 'none', width: 220 }}
       className="bg-white border border-brand-gray rounded-xl shadow-xl px-3 py-2.5 text-xs"
     >
-      <p className="font-bold text-gray-800 mb-1.5">{tt.day} · {tt.slot}–{endTime}</p>
-      <div className="space-y-1 text-gray-600">
-        <div className="flex justify-between gap-2">
-          <span>On campus today</span>
-          <span className="font-semibold text-gray-800">{tt.data.onCampusDay.toLocaleString()}</span>
-        </div>
-        <div className="flex justify-between gap-2">
-          <span>Present at {tt.slot}</span>
-          <span className="font-semibold text-gray-800">~{tt.data.presentNow.toLocaleString()}</span>
-        </div>
-        <div className="flex justify-between gap-2">
-          <span>Available (filtered)</span>
-          <span className="font-semibold text-brand-blue">{tt.data.freePercent}%</span>
-        </div>
-      </div>
+      <p className="font-bold text-gray-800 mb-1">{day} · {timeStr}</p>
+      {isNoClasses ? (
+        <p className="text-gray-400 italic">No classes scheduled</p>
+      ) : (
+        <>
+          <div className="space-y-1 text-gray-600">
+            <div className="flex justify-between gap-2">
+              <span>On campus today</span>
+              <span className="font-semibold text-gray-800">{liveMetrics.onCampusAllDay.toLocaleString()} / {liveMetrics.total.toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between gap-2">
+              <span>Present now</span>
+              <span className="font-semibold text-gray-800">{liveMetrics.onCampus.toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between gap-2">
+              <span>Present &amp; free</span>
+              <span className="font-semibold text-brand-blue">{freePercent}% ({liveMetrics.free.toLocaleString()})</span>
+            </div>
+          </div>
+          {periodLabel && (
+            <p className="text-[10px] text-gray-400 italic mt-1.5 leading-tight">{periodLabel}</p>
+          )}
+        </>
+      )}
     </div>,
     document.body,
   );
@@ -175,17 +208,60 @@ function HeatmapChip({ suggestion, isBest }: { suggestion: Suggestion; isBest: b
 
 export default function HeatmapGrid() {
   const { state } = useApp();
-  const { heatmap, cellData } = useResults();
+  const { heatmap, eligibleStudents, fiftyMinDays } = useResults();
   const prevOffsetRef = useRef(state.weekOffset);
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
-
-  const showTooltip = useCallback((day: string, slot: string, data: HeatmapCellData, e: React.MouseEvent) => {
-    setTooltip({ day, slot, data, x: e.clientX, y: e.clientY });
-  }, []);
-  const moveTooltip = useCallback((e: React.MouseEvent) => {
-    setTooltip(prev => prev ? { ...prev, x: e.clientX, y: e.clientY } : null);
-  }, []);
   const hideTooltip = useCallback(() => setTooltip(null), []);
+
+  function handleGridMouseMove(e: React.MouseEvent<HTMLDivElement>) {
+    const el = e.currentTarget;
+    const rect = el.getBoundingClientRect();
+
+    // Y: continuous time from scroll-aware position within the grid body
+    const relY = e.clientY - rect.top + el.scrollTop;
+    const fracY = Math.max(0, Math.min(1, relY / el.scrollHeight));
+    const timeMin = DAY_START_MIN + fracY * TOTAL_FR;
+
+    // X: which day column (px-4 = 16px left padding + time label column)
+    const LEFT_PAD = 16;
+    const relX = e.clientX - rect.left - LEFT_PAD - TIME_COL_W;
+    const contentW = rect.width - LEFT_PAD * 2 - TIME_COL_W;
+
+    if (relX < 0 || numActiveDays === 0) {
+      setTooltip(null);
+      return;
+    }
+
+    const colIdx = Math.max(0, Math.min(Math.floor(relX / (contentW / numActiveDays)), numActiveDays - 1));
+    const day = DAYS_FULL[activeDayIndices[colIdx]];
+
+    // Compute live on-campus / free counts at the exact cursor minute
+    const isFiftyMin = fiftyMinDays.has(day);
+    let onCampus = 0;
+    let onCampusAllDay = 0;
+    let free = 0;
+    for (const s of eligibleStudents) {
+      const rawPeriods = s.periods.filter(p => p.day === day);
+      if (rawPeriods.length === 0) continue;
+      onCampusAllDay++;
+      const dayPeriods = isFiftyMin
+        ? rawPeriods.map(p => { const ns = STD_TO_50MIN[p.startMin] ?? p.startMin; return { startMin: ns, endMin: ns + 50 }; })
+        : rawPeriods;
+      const arrival   = dayPeriods.reduce((m, p) => Math.min(m, p.startMin), Infinity) - 30;
+      const departure = dayPeriods.reduce((m, p) => Math.max(m, p.endMin), -Infinity) + 90;
+      if (arrival > timeMin || departure <= timeMin) continue;
+      onCampus++;
+      if (!dayPeriods.some(p => p.startMin <= timeMin && p.endMin > timeMin)) free++;
+    }
+
+    setTooltip({
+      timeMin,
+      day,
+      liveMetrics: { onCampus, onCampusAllDay, free, total: eligibleStudents.length },
+      x: e.clientX,
+      y: e.clientY,
+    });
+  }
 
   // Loading / error gates — show overlay instead of grid
   if (state.dataState === 'loading') {
@@ -220,12 +296,33 @@ export default function HeatmapGrid() {
     .map((on, i) => (on ? i : -1))
     .filter(i => i >= 0);
 
+  const monday = getWeekMonday(state.weekOffset);
+  const weekDates = Array.from({ length: 6 }, (_, i) => addDays(monday, i));
+
+  // Days that are blank in the heatmap: out-of-semester OR covered by a no-classes event
+  const noClassesDays = new Set<string>();
+  for (const dayIdx of activeDayIndices) {
+    const iso = localDateToISO(weekDates[dayIdx]);
+    if (iso < SEMESTER_START_ISO || iso > SEMESTER_END_ISO) {
+      noClassesDays.add(DAYS_FULL[dayIdx]);
+      continue;
+    }
+    for (const event of state.academicEvents) {
+      if (event.kind === 'no-classes' && iso >= event.start && iso < event.end) {
+        noClassesDays.add(DAYS_FULL[dayIdx]);
+        break;
+      }
+    }
+  }
+
   // Compute min/max free% across active class-slot cells for the gradient
+  // (exclude no-classes days from the range so they don't skew it)
   let heatMin = 100;
   let heatMax = 0;
   if (hasActiveResults) {
     for (const dayIdx of activeDayIndices) {
       const day = DAYS_FULL[dayIdx];
+      if (noClassesDays.has(day)) continue;
       for (const slot of CLASS_SLOTS) {
         const v = heatmap[`${day}-${slot}`] ?? 0;
         if (v < heatMin) heatMin = v;
@@ -233,9 +330,6 @@ export default function HeatmapGrid() {
       }
     }
   }
-
-  const monday = getWeekMonday(state.weekOffset);
-  const weekDates = Array.from({ length: 6 }, (_, i) => addDays(monday, i));
 
   const numActiveDays = activeDayIndices.length;
   const gridColTemplate = `${TIME_COL_W}px repeat(${numActiveDays}, 1fr)`;
@@ -260,11 +354,20 @@ export default function HeatmapGrid() {
           {activeDayIndices.map(dayIdx => {
             const date = weekDates[dayIdx];
             const today = isToday(date);
+            const dayName = DAYS_FULL[dayIdx];
+            const isFiftyMinDay = fiftyMinDays.has(dayName);
             return (
               <div key={dayIdx} className="text-center py-3 px-1">
-                <p className="text-sm font-bold text-gray-700 uppercase tracking-wider leading-none">
-                  {DAYS_FULL[dayIdx]}
-                </p>
+                <div className="flex items-center justify-center gap-1.5">
+                  <p className="text-sm font-bold text-gray-700 uppercase tracking-wider leading-none">
+                    {dayName}
+                  </p>
+                  {isFiftyMinDay && (
+                    <span className="text-[8px] font-bold text-amber-700 bg-amber-100 px-1 py-0.5 rounded leading-none">
+                      50 min
+                    </span>
+                  )}
+                </div>
                 <div className="flex items-center justify-center mt-1.5">
                   <span className={`text-base leading-none flex items-center justify-center w-9 h-9 rounded-full font-bold ${
                     today ? 'bg-brand-blue text-white shadow-md' : 'bg-gray-100 text-gray-700'
@@ -277,8 +380,22 @@ export default function HeatmapGrid() {
           })}
         </div>
 
-        {/* Scrollable grid body */}
-        <div className="flex-1 overflow-y-auto overflow-x-auto min-h-0 px-4">
+        {/* All-day events row */}
+        <div className="flex-none px-4">
+          <AllDayRow
+            events={state.academicEvents}
+            activeDayIndices={activeDayIndices}
+            weekDates={weekDates}
+            timeColW={TIME_COL_W}
+          />
+        </div>
+
+        {/* Scrollable grid body — mouse tracked here for continuous tooltip */}
+        <div
+          className="flex-1 overflow-y-auto overflow-x-auto min-h-0 px-4"
+          onMouseMove={handleGridMouseMove}
+          onMouseLeave={hideTooltip}
+        >
           <div style={{ position: 'relative', height: '100%', minHeight: '600px' }}>
 
             {/* Background heatmap grid */}
@@ -335,21 +452,18 @@ export default function HeatmapGrid() {
                         />
                       );
                     }
+                    const isNoClasses = noClassesDays.has(day);
                     const cellLabel = key
-                      ? hasActiveResults
-                        ? `${day} ${row.slot}: ${pct}% free`
-                        : `${day} ${row.slot}: press Generate to see availability`
+                      ? isNoClasses
+                        ? `${day} ${row.slot}: no classes`
+                        : hasActiveResults
+                          ? `${day} ${row.slot}: ${pct}% free`
+                          : `${day} ${row.slot}: press Generate to see availability`
                       : undefined;
-                    const cd = key ? cellData[key] : undefined;
-                    const noCampus = hasActiveResults && cd !== undefined && cd.totalOnCampus === 0;
                     const cellStyle: React.CSSProperties = {
                       gridColumn: col,
                       gridRow,
-                      ...(hasActiveResults
-                        ? noCampus
-                          ? NO_CAMPUS_STYLE
-                          : heatStyle(pct, heatMin, heatMax)
-                        : {}),
+                      ...(hasActiveResults && !isNoClasses ? heatStyle(pct, heatMin, heatMax) : {}),
                     };
                     return (
                       <div
@@ -358,12 +472,9 @@ export default function HeatmapGrid() {
                         aria-label={cellLabel}
                         className="m-0.5 rounded-lg transition-colors cursor-default"
                         style={cellStyle}
-                        onMouseEnter={hasActiveResults && cd ? e => showTooltip(day, row.slot!, cd, e) : undefined}
-                        onMouseMove={hasActiveResults && cd ? moveTooltip : undefined}
-                        onMouseLeave={hasActiveResults && cd ? hideTooltip : undefined}
                       >
-                        {hasActiveResults && (
-                          <span className="sr-only">{noCampus ? 'no students on campus' : `${pct}%`}</span>
+                        {hasActiveResults && !isNoClasses && (
+                          <span className="sr-only">{pct}%</span>
                         )}
                       </div>
                     );
@@ -387,6 +498,26 @@ export default function HeatmapGrid() {
                 <div key={`terminal-${colOffset}`} style={{ gridColumn: colOffset + 2, gridRow: GRID_ROWS.length + 1 }} />
               ))}
             </div>
+
+            {/* 50-min day column overlays — amber tint signals compressed/discouraged schedule */}
+            {activeDayIndices.map((dayIdx, colOffset) => {
+              if (!fiftyMinDays.has(DAYS_FULL[dayIdx])) return null;
+              return (
+                <div
+                  key={`50min-col-${dayIdx}`}
+                  style={{
+                    position: 'absolute',
+                    left:  `calc(${TIME_COL_W}px + ${colOffset} * (100% - ${TIME_COL_W}px) / ${numActiveDays})`,
+                    width: `calc((100% - ${TIME_COL_W}px) / ${numActiveDays})`,
+                    top: 0,
+                    height: '100%',
+                    backgroundColor: 'rgba(251, 191, 36, 0.09)',
+                    pointerEvents: 'none',
+                    zIndex: 1,
+                  }}
+                />
+              );
+            })}
 
             {/* Chip overlay — positioned by wall-clock minutes */}
             {numActiveDays > 0 && suggestions.map((suggestion, idx) => {
@@ -424,7 +555,7 @@ export default function HeatmapGrid() {
       </div>
     </div>
 
-    {tooltip && <HeatmapTooltip tt={tooltip} />}
+    {tooltip && <HeatmapTooltip tt={tooltip} noClassesDays={noClassesDays} />}
     </>
   );
 }

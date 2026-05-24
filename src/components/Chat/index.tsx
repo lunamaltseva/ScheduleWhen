@@ -1,7 +1,7 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import { useApp } from '../../context/AppContext';
 import { ChevronUp, ChevronDown, ArrowLeft } from '../Icons';
-import { streamAI, buildContextBlock } from '../../lib/ai';
+import { streamAI, buildContextBlock, type ParamAction } from '../../lib/ai';
 
 const SUGGESTED_PROMPTS = [
   'Why is this time slot recommended?',
@@ -33,7 +33,7 @@ export default function ChatBot({ mobileMode = false }: ChatBotProps) {
 
     dispatch({
       type: 'ADD_CHAT_MESSAGE',
-      message: { id: Math.random().toString(36).slice(2), role: 'user', text: trimmed },
+      message: { id: crypto.randomUUID(), role: 'user', text: trimmed },
     });
     setInput('');
 
@@ -53,8 +53,14 @@ export default function ChatBot({ mobileMode = false }: ChatBotProps) {
     try {
       for await (const chunk of streamAI(history, contextBlock)) {
         if (abortRef.current) break;
-        accumulated += chunk;
-        setStreamingText(accumulated);
+        if (typeof chunk === 'object' && '_actions' in chunk) {
+          for (const action of chunk._actions as ParamAction[]) {
+            dispatch(action as Parameters<typeof dispatch>[0]);
+          }
+        } else {
+          accumulated += chunk;
+          setStreamingText(accumulated);
+        }
       }
     } catch {
       accumulated = 'Sorry, something went wrong. Please try again.';
@@ -64,11 +70,20 @@ export default function ChatBot({ mobileMode = false }: ChatBotProps) {
     if (!abortRef.current) {
       dispatch({
         type: 'ADD_CHAT_MESSAGE',
-        message: { id: Math.random().toString(36).slice(2), role: 'bot', text: accumulated },
+        message: { id: crypto.randomUUID(), role: 'bot', text: accumulated },
       });
     }
     setStreamingText(null);
   }, [state, dispatch, streamingText]);
+
+  // Handle prompts queued externally (e.g. "Explain why" button)
+  useEffect(() => {
+    if (state.pendingPrompt && streamingText === null) {
+      const prompt = state.pendingPrompt;
+      dispatch({ type: 'CLEAR_PENDING_PROMPT' });
+      sendMessage(prompt);
+    }
+  }, [state.pendingPrompt, streamingText, sendMessage, dispatch]);
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === 'Enter') sendMessage(input);
@@ -169,10 +184,11 @@ function ChatBody({
 
       {!isEmpty && (
         <>
-          <hr className="border-brand-gray" />
-          <p className="text-[10px] text-gray-400 px-3 py-1">
-            Responses may contain mistakes. For room bookings, contact the Registrar (Room 110).
-          </p>
+          <div className="bg-red-50 border-t border-red-100 px-3 py-1.5">
+            <p className="text-[10px] text-red-600 leading-snug">
+              Responses may contain mistakes. For room bookings, contact the Registrar (Room 110).
+            </p>
+          </div>
         </>
       )}
 

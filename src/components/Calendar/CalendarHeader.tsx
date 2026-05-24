@@ -46,9 +46,12 @@ function getWeeksAheadLabel(offset: number): string {
   return `${offset} week${offset === 1 ? '' : 's'} ahead`;
 }
 
+const FIRST_WEEK_MONDAY = new Date(2026, 8, 14); // Monday Sept 14 = Week 1 of Fall 2026
+
 function getSemesterWeek(offset: number): number | null {
   const monday = getWeekMonday(offset);
-  const diffMs = monday.getTime() - SEMESTER_START.getTime();
+  if (monday > SEMESTER_END) return null;
+  const diffMs = monday.getTime() - FIRST_WEEK_MONDAY.getTime();
   if (diffMs < 0) return null;
   return Math.floor(diffMs / MS_PER_WEEK) + 1;
 }
@@ -81,7 +84,24 @@ export default function CalendarHeader({ showBackButton = false }: CalendarHeade
             Back
           </button>
           <p className="text-white text-base font-semibold">{getMonthLabel(state.weekOffset)}</p>
-          <div className="w-16" />
+          <div className="flex rounded-full overflow-hidden shadow-sm border border-white/30">
+            <button
+              onClick={() => setOffset(state.weekOffset - 1)}
+              disabled={!canGoBack}
+              className="flex items-center justify-center bg-white text-brand-blue px-3 py-2 border-r border-brand-gray/40 hover:bg-blue-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              aria-label="Previous week"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => setOffset(state.weekOffset + 1)}
+              disabled={!canGoForward}
+              className="flex items-center justify-center bg-white text-brand-blue px-3 py-2 hover:bg-blue-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              aria-label="Next week"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
         </>
       ) : (
         <>

@@ -74,6 +74,10 @@ export const SLOT_END_TIMES: Record<string, string> = {
   '19:50': '21:05',
 };
 
-// Semester date bounds (Fall 2026)
-export const SEMESTER_START = new Date(2026, 8, 14); // Monday Sept 14
-export const SEMESTER_END   = new Date(2026, 11, 28); // Monday Dec 28
+// Semester date bounds (Fall 2026). Classes run Sept 15 – Dec 31 inclusive.
+// SEMESTER_START / SEMESTER_END use local-midnight Date objects for week-offset
+// navigation clamping. For date comparisons use the ISO string constants below.
+export const SEMESTER_START = new Date(2026, 8, 15); // Sept 15 (first day of classes)
+export const SEMESTER_END   = new Date(2026, 11, 31); // Dec 31 (last day of classes)
+export const SEMESTER_START_ISO = '2026-09-15';
+export const SEMESTER_END_ISO   = '2026-12-31';

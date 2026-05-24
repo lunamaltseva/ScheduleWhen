@@ -13,7 +13,7 @@ const PG_DEPT_LIST: string[] = [...PG_DEPTS];
 const ALL_DEPT_LIST: string[] = [...ALL_DEPTS];
 
 function genId() {
-  return Math.random().toString(36).slice(2);
+  return crypto.randomUUID();
 }
 
 function deptSummary(selected: string[]): string {

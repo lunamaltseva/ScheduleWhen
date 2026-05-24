@@ -1,5 +1,6 @@
 import { createContext, useContext, useReducer, type ReactNode } from 'react';
 import type { Filter, TimePeriod, ChatMessage, MobileView, ModalState, AlgorithmResult, Student } from '../types';
+import type { AcademicEvent } from '../data/parseCalendar';
 import { SEMESTER_START, SEMESTER_END } from '../constants';
 
 // ── State ──────────────────────────────────────────────────────────────────────
@@ -21,9 +22,14 @@ export interface AppState {
   isDirty: boolean;                  // true = Generate button should be shown
   algorithmResult: AlgorithmResult | null;
   autoRegen: boolean;                // re-run algorithm automatically on param changes
+  pendingPrompt: string | null;      // prompt queued for the AI chatbot (e.g. from "Explain why")
   // Student data — empty until Excel loads
   students: Student[];
   dataState: 'loading' | 'loaded' | 'error';
+  // Academic calendar events — empty until ICS loads
+  academicEvents: AcademicEvent[];
+  // Non-blocking banner shown when a Generate run finds no valid days
+  noTimeslotBanner: string | null;
 }
 
 // ── Actions ────────────────────────────────────────────────────────────────────
@@ -31,7 +37,9 @@ export interface AppState {
 type Action =
   | { type: 'SET_DURATION'; value: number }
   | { type: 'TOGGLE_DAY'; index: number }
+  | { type: 'SET_SELECTED_DAYS'; days: boolean[] }
   | { type: 'TOGGLE_TIME_PERIOD'; value: TimePeriod }
+  | { type: 'SET_TIME_PERIODS_LIST'; periods: TimePeriod[] }
   | { type: 'SET_TIMEFRAME'; value: string }
   | { type: 'SET_TARGET'; value: number }
   | { type: 'ADD_FILTER'; filter: Filter }
@@ -46,13 +54,21 @@ type Action =
   | { type: 'SET_DELETING_FILTER'; id: string | null }
   | { type: 'SET_ALGORITHM_RESULT'; result: AlgorithmResult }
   | { type: 'TOGGLE_AUTO_REGEN' }
+  | { type: 'SET_PENDING_PROMPT'; prompt: string }
+  | { type: 'CLEAR_PENDING_PROMPT' }
   | { type: 'SET_STUDENTS'; students: Student[] }
-  | { type: 'SET_DATA_ERROR' };
+  | { type: 'SET_DATA_ERROR' }
+  | { type: 'SET_ACADEMIC_EVENTS'; events: AcademicEvent[] }
+  | { type: 'SET_NO_TIMESLOT_BANNER'; message: string | null };
 
-// Parameter-changing actions that invalidate the current algorithm result
+// Parameter-changing actions that invalidate the current algorithm result.
+// SET_WEEK_OFFSET is included because blocked days are date-specific —
+// a different week can have different holidays or semester boundaries.
 const DIRTY_ACTIONS = new Set([
-  'SET_DURATION', 'TOGGLE_DAY', 'TOGGLE_TIME_PERIOD', 'SET_TIMEFRAME',
+  'SET_DURATION', 'TOGGLE_DAY', 'SET_SELECTED_DAYS',
+  'TOGGLE_TIME_PERIOD', 'SET_TIME_PERIODS_LIST', 'SET_TIMEFRAME',
   'SET_TARGET', 'ADD_FILTER', 'UPDATE_FILTER', 'DELETE_FILTER',
+  'SET_WEEK_OFFSET',
 ]);
 
 // ── Initial state ──────────────────────────────────────────────────────────────
@@ -89,8 +105,11 @@ const initialState: AppState = {
   isDirty: true,
   algorithmResult: null,
   autoRegen: false,
+  pendingPrompt: null,
   students: [],
   dataState: 'loading',
+  academicEvents: [],
+  noTimeslotBanner: null,
 };
 
 // ── Reducer ────────────────────────────────────────────────────────────────────
@@ -98,13 +117,16 @@ const initialState: AppState = {
 function innerReducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case 'SET_DURATION':
-      return { ...state, duration: action.value };
+      return { ...state, duration: Math.min(840, Math.max(1, action.value)) };
 
     case 'TOGGLE_DAY': {
       const days = [...state.selectedDays];
       days[action.index] = !days[action.index];
       return { ...state, selectedDays: days };
     }
+
+    case 'SET_SELECTED_DAYS':
+      return { ...state, selectedDays: action.days };
 
     case 'TOGGLE_TIME_PERIOD': {
       const active = state.timePeriods.includes(action.value)
@@ -113,11 +135,14 @@ function innerReducer(state: AppState, action: Action): AppState {
       return { ...state, timePeriods: active };
     }
 
+    case 'SET_TIME_PERIODS_LIST':
+      return { ...state, timePeriods: action.periods };
+
     case 'SET_TIMEFRAME':
       return { ...state, timeframeFrom: action.value };
 
     case 'SET_TARGET':
-      return { ...state, targetParticipants: action.value };
+      return { ...state, targetParticipants: Math.min(5000, Math.max(1, action.value)) };
 
     case 'ADD_FILTER': {
       const isDefaultOnly = state.filters.length === 1 && state.filters[0].id === 'default';
@@ -138,7 +163,7 @@ function innerReducer(state: AppState, action: Action): AppState {
       };
 
     case 'SET_WEEK_OFFSET':
-      return { ...state, weekOffset: action.value };
+      return { ...state, weekOffset: action.value, noTimeslotBanner: null };
 
     case 'TOGGLE_CHAT':
       return { ...state, chatOpen: !state.chatOpen };
@@ -159,16 +184,34 @@ function innerReducer(state: AppState, action: Action): AppState {
       return { ...state, deletingFilterId: action.id };
 
     case 'SET_ALGORITHM_RESULT':
-      return { ...state, algorithmResult: action.result, isDirty: false };
+      return {
+        ...state,
+        algorithmResult: action.result,
+        isDirty: false,
+        noTimeslotBanner: null,
+        autoRegen: state.algorithmResult === null ? true : state.autoRegen,
+      };
 
     case 'TOGGLE_AUTO_REGEN':
       return { ...state, autoRegen: !state.autoRegen };
+
+    case 'SET_PENDING_PROMPT':
+      return { ...state, pendingPrompt: action.prompt };
+
+    case 'CLEAR_PENDING_PROMPT':
+      return { ...state, pendingPrompt: null };
 
     case 'SET_STUDENTS':
       return { ...state, students: action.students, dataState: 'loaded' };
 
     case 'SET_DATA_ERROR':
       return { ...state, dataState: 'error' };
+
+    case 'SET_ACADEMIC_EVENTS':
+      return { ...state, academicEvents: action.events };
+
+    case 'SET_NO_TIMESLOT_BANNER':
+      return { ...state, noTimeslotBanner: action.message };
   }
 }
 

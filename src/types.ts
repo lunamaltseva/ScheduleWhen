@@ -29,7 +29,7 @@ export interface Suggestion {
   startTime: string;       // "HH:MM" — may be any time, not just class slot starts
   endTime: string;
   weightedScore: number;
-  rawFreePercent: number;  // % of on-campus students free during the window
+  rawFreePercent: number;  // % of ALL eligible students who are free during the window
   onCampusCount: number;   // # on-campus students free during the window
   factors: {
     timeWeight: number;
@@ -52,6 +52,7 @@ export interface AlgorithmResult {
   targetMet: boolean;
   prefOverridden: boolean;
   overrideReason?: string;
+  eligibleCount: number;  // total students matching all filters combined
 }
 
 export type MobileView = 'sidebar' | 'calendar' | 'chat';

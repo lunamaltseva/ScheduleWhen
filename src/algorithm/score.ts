@@ -32,6 +32,43 @@ const DAY_START_MIN = 480;
 const DAY_END_MIN   = 1320;
 const LUNCH_GAP_MIN = 725; // 12:05 = end of the 10:50 class
 
+// ── 50-min class day schedule ──────────────────────────────────────────────────
+// On special days (e.g. Career Fair, Initiation Day) all 9 standard slots are
+// compressed to 50 minutes with 10-minute breaks, starting at 8:00, no lunch gap.
+// Maps standard slot startMin → compressed slot startMin.
+export const STD_TO_50MIN: Readonly<Record<number, number>> = {
+  480: 480, // 8:00  → 8:00
+  565: 540, // 9:25  → 9:00
+  650: 600, // 10:50 → 10:00
+  765: 660, // 12:45 → 11:00
+  850: 720, // 14:10 → 12:00
+  935: 780, // 15:35 → 13:00
+  1020: 840, // 17:00 → 14:00
+  1105: 900, // 18:25 → 15:00
+  1190: 960, // 19:50 → 16:00
+};
+// Candidate starts for 50-min days: class starts + break windows, full day (8:00–17:00)
+export const FIFTY_MIN_STARTS = [480, 530, 540, 590, 600, 650, 660, 710, 720, 770, 780, 830, 840, 890, 900, 950, 960];
+
+function remap50min(periods: Student['periods'], day: string): Student['periods'] {
+  return periods
+    .filter(p => p.day === day)
+    .map(p => {
+      const newStart = STD_TO_50MIN[p.startMin] ?? p.startMin;
+      return { day: p.day, startMin: newStart, endMin: newStart + 50 };
+    });
+}
+
+function studentsWithRemapped50min(students: Student[], day: string): Student[] {
+  return students.map(s => ({
+    ...s,
+    periods: [
+      ...s.periods.filter(p => p.day !== day),
+      ...remap50min(s.periods, day),
+    ],
+  }));
+}
+
 function getCandidateStarts(duration: number): number[] {
   return ALL_BREAKPOINTS.filter(m => m >= DAY_START_MIN && m + duration <= DAY_END_MIN);
 }
@@ -163,7 +200,7 @@ function scoreWindow(
 ): WindowScore {
   const endMin    = startMin + duration;
   const onCampus  = eligible.filter(s => isOnCampus(s, day));
-  const total     = onCampus.length || 1; // denominator = students on campus that day
+  const total     = eligible.length || 1; // denominator = all eligible students (not just on-campus)
 
   let freeCount         = 0;
   let midEventCount     = 0;
@@ -340,15 +377,30 @@ export function runAlgorithm(
   selectedDays: boolean[],
   timePeriods: TimePeriod[],
   targetParticipants: number,
+  fiftyMinDays: Set<string> = new Set(),
 ): AlgorithmResult {
   const eligible   = getEligibleStudents(students, filters);
   const activeDays = DAYS_FULL.filter((_, i) => selectedDays[i]);
 
+  // 50-min days are discouraged for scheduling — classes are compressed and the
+  // day is shorter, making it harder to find a good slot for all attendees.
+  const FIFTY_MIN_PENALTY = 0.35;
+  const FIFTY_MIN_DAY_END = 1020; // 17:00 — compressed day ends here
+
   function scoreAllWindows(starts: number[]): WindowScore[] {
     const scores: WindowScore[] = [];
     for (const day of activeDays) {
-      for (const sm of starts) {
-        scores.push(scoreWindow(day, sm, duration, eligible));
+      if (fiftyMinDays.has(day)) {
+        const remapped = studentsWithRemapped50min(eligible, day);
+        const fiftyStarts = FIFTY_MIN_STARTS.filter(m => m + duration <= FIFTY_MIN_DAY_END);
+        for (const sm of fiftyStarts) {
+          const ws = scoreWindow(day, sm, duration, remapped);
+          scores.push({ ...ws, score: ws.score * FIFTY_MIN_PENALTY });
+        }
+      } else {
+        for (const sm of starts) {
+          scores.push(scoreWindow(day, sm, duration, eligible));
+        }
       }
     }
     return scores;
@@ -406,6 +458,7 @@ export function runAlgorithm(
     targetMet,
     prefOverridden,
     overrideReason,
+    eligibleCount: eligible.length,
   };
 }
 
@@ -420,8 +473,8 @@ export function buildExplanation(result: AlgorithmResult, duration: number): str
 
   lines.push(
     `The top recommendation is ${dayLabel} at ${top.startTime}–${top.endTime}: ` +
-    `${Math.round(top.rawFreePercent)}% of on-campus students are free, ` +
-    `with approximately ${top.onCampusCount} students on campus at that time.`,
+    `${Math.round(top.rawFreePercent)}% of eligible students are estimated free, ` +
+    `with approximately ${top.onCampusCount} confirmed on campus at that time.`,
   );
 
   if (result.prefOverridden && result.overrideReason) {
