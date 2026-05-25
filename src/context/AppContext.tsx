@@ -13,6 +13,7 @@ export interface AppState {
   targetParticipants: number;
   filters: Filter[];
   weekOffset: number;
+  fixedStartMin: number | null;      // when set, algorithm pins this exact start and chooses the best day(s)
   chatOpen: boolean;
   chatMessages: ChatMessage[];
   mobileView: MobileView;
@@ -34,17 +35,20 @@ export interface AppState {
 
 // ── Actions ────────────────────────────────────────────────────────────────────
 
+// `fromAI` tags parameter changes that originated from the chatbot's tool use,
+// so the chat window is NOT auto-collapsed when the bot itself edits params.
 type Action =
-  | { type: 'SET_DURATION'; value: number }
-  | { type: 'TOGGLE_DAY'; index: number }
-  | { type: 'SET_SELECTED_DAYS'; days: boolean[] }
-  | { type: 'TOGGLE_TIME_PERIOD'; value: TimePeriod }
-  | { type: 'SET_TIME_PERIODS_LIST'; periods: TimePeriod[] }
-  | { type: 'SET_TIMEFRAME'; value: string }
-  | { type: 'SET_TARGET'; value: number }
-  | { type: 'ADD_FILTER'; filter: Filter }
-  | { type: 'UPDATE_FILTER'; filter: Filter }
-  | { type: 'DELETE_FILTER'; id: string }
+  | { type: 'SET_DURATION'; value: number; fromAI?: boolean }
+  | { type: 'TOGGLE_DAY'; index: number; fromAI?: boolean }
+  | { type: 'SET_SELECTED_DAYS'; days: boolean[]; fromAI?: boolean }
+  | { type: 'TOGGLE_TIME_PERIOD'; value: TimePeriod; fromAI?: boolean }
+  | { type: 'SET_TIME_PERIODS_LIST'; periods: TimePeriod[]; fromAI?: boolean }
+  | { type: 'SET_TIMEFRAME'; value: string; fromAI?: boolean }
+  | { type: 'SET_TARGET'; value: number; fromAI?: boolean }
+  | { type: 'SET_FIXED_TIME'; value: number | null; fromAI?: boolean }
+  | { type: 'ADD_FILTER'; filter: Filter; fromAI?: boolean }
+  | { type: 'UPDATE_FILTER'; filter: Filter; fromAI?: boolean }
+  | { type: 'DELETE_FILTER'; id: string; fromAI?: boolean }
   | { type: 'SET_WEEK_OFFSET'; value: number }
   | { type: 'TOGGLE_CHAT' }
   | { type: 'OPEN_CHAT' }
@@ -53,7 +57,6 @@ type Action =
   | { type: 'SET_MODAL'; modal: ModalState }
   | { type: 'SET_DELETING_FILTER'; id: string | null }
   | { type: 'SET_ALGORITHM_RESULT'; result: AlgorithmResult }
-  | { type: 'TOGGLE_AUTO_REGEN' }
   | { type: 'SET_PENDING_PROMPT'; prompt: string }
   | { type: 'CLEAR_PENDING_PROMPT' }
   | { type: 'SET_STUDENTS'; students: Student[] }
@@ -67,8 +70,16 @@ type Action =
 const DIRTY_ACTIONS = new Set([
   'SET_DURATION', 'TOGGLE_DAY', 'SET_SELECTED_DAYS',
   'TOGGLE_TIME_PERIOD', 'SET_TIME_PERIODS_LIST', 'SET_TIMEFRAME',
-  'SET_TARGET', 'ADD_FILTER', 'UPDATE_FILTER', 'DELETE_FILTER',
+  'SET_TARGET', 'SET_FIXED_TIME', 'ADD_FILTER', 'UPDATE_FILTER', 'DELETE_FILTER',
   'SET_WEEK_OFFSET',
+]);
+
+// User-driven parameter edits that should collapse the chat window.
+// Excludes SET_WEEK_OFFSET (mere navigation) and anything tagged fromAI.
+const COLLAPSE_ON_ACTIONS = new Set([
+  'SET_DURATION', 'TOGGLE_DAY', 'SET_SELECTED_DAYS',
+  'TOGGLE_TIME_PERIOD', 'SET_TIME_PERIODS_LIST', 'SET_TIMEFRAME',
+  'SET_TARGET', 'SET_FIXED_TIME', 'ADD_FILTER', 'UPDATE_FILTER', 'DELETE_FILTER',
 ]);
 
 // ── Initial state ──────────────────────────────────────────────────────────────
@@ -95,8 +106,9 @@ const initialState: AppState = {
   timePeriods: ['afternoon'],
   timeframeFrom: today(),
   targetParticipants: 20,
-  filters: [{ id: 'default', depts: [], years: [], status: 'any' }],
+  filters: [],
   weekOffset: computeInitialWeekOffset(),
+  fixedStartMin: null,
   chatOpen: false,
   chatMessages: [],
   mobileView: 'sidebar',
@@ -104,7 +116,7 @@ const initialState: AppState = {
   deletingFilterId: null,
   isDirty: true,
   algorithmResult: null,
-  autoRegen: false,
+  autoRegen: true,
   pendingPrompt: null,
   students: [],
   dataState: 'loading',
@@ -144,10 +156,8 @@ function innerReducer(state: AppState, action: Action): AppState {
     case 'SET_TARGET':
       return { ...state, targetParticipants: Math.min(5000, Math.max(1, action.value)) };
 
-    case 'ADD_FILTER': {
-      const isDefaultOnly = state.filters.length === 1 && state.filters[0].id === 'default';
-      return { ...state, filters: isDefaultOnly ? [action.filter] : [...state.filters, action.filter] };
-    }
+    case 'ADD_FILTER':
+      return { ...state, filters: [...state.filters, action.filter] };
 
     case 'UPDATE_FILTER':
       return {
@@ -164,6 +174,9 @@ function innerReducer(state: AppState, action: Action): AppState {
 
     case 'SET_WEEK_OFFSET':
       return { ...state, weekOffset: action.value, noTimeslotBanner: null };
+
+    case 'SET_FIXED_TIME':
+      return { ...state, fixedStartMin: action.value };
 
     case 'TOGGLE_CHAT':
       return { ...state, chatOpen: !state.chatOpen };
@@ -189,11 +202,7 @@ function innerReducer(state: AppState, action: Action): AppState {
         algorithmResult: action.result,
         isDirty: false,
         noTimeslotBanner: null,
-        autoRegen: state.algorithmResult === null ? true : state.autoRegen,
       };
-
-    case 'TOGGLE_AUTO_REGEN':
-      return { ...state, autoRegen: !state.autoRegen };
 
     case 'SET_PENDING_PROMPT':
       return { ...state, pendingPrompt: action.prompt };
@@ -216,12 +225,19 @@ function innerReducer(state: AppState, action: Action): AppState {
 }
 
 function reducer(state: AppState, action: Action): AppState {
-  const next = innerReducer(state, action);
+  let next = innerReducer(state, action);
 
   // Any parameter-changing action marks the existing result as stale
   if (DIRTY_ACTIONS.has(action.type)) {
-    return { ...next, isDirty: true };
+    next = { ...next, isDirty: true };
   }
+
+  // Collapse the chat when the USER edits a parameter (not the AI, not week nav)
+  const fromAI = 'fromAI' in action && action.fromAI;
+  if (COLLAPSE_ON_ACTIONS.has(action.type) && !fromAI && next.chatOpen) {
+    next = { ...next, chatOpen: false };
+  }
+
   return next;
 }
 

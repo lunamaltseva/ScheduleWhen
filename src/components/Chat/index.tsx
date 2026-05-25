@@ -10,6 +10,9 @@ const SUGGESTED_PROMPTS = [
   'Can you suggest a time that avoids Monday?',
 ];
 
+// Typing reveal speed (characters per animation tick).
+const TYPE_CHARS_PER_TICK = 3;
+
 interface ChatBotProps {
   mobileMode?: boolean;
 }
@@ -17,19 +20,37 @@ interface ChatBotProps {
 export default function ChatBot({ mobileMode = false }: ChatBotProps) {
   const { state, dispatch } = useApp();
   const [input, setInput] = useState('');
-  const [streamingText, setStreamingText] = useState<string | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  // `full` is everything streamed so far (null = idle); `displayed` lags behind it
+  // to create a steady typing effect; `streamDone` flips when the network finishes.
+  const [full, setFull] = useState<string | null>(null);
+  const [displayed, setDisplayed] = useState('');
+  const [streamDone, setStreamDone] = useState(false);
   const abortRef = useRef<boolean>(false);
+  const isStreaming = full !== null;
 
+  // Typewriter: reveal `displayed` toward `full`; once caught up AND the stream
+  // has finished, commit the final message and reset.
   useEffect(() => {
-    if (state.chatOpen || mobileMode) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (full === null) return;
+    if (displayed.length < full.length) {
+      const id = setTimeout(() => {
+        setDisplayed(full.slice(0, displayed.length + TYPE_CHARS_PER_TICK));
+      }, 18);
+      return () => clearTimeout(id);
     }
-  }, [state.chatMessages, streamingText, state.chatOpen, mobileMode]);
+    if (streamDone) {
+      if (!abortRef.current && full) {
+        dispatch({ type: 'ADD_CHAT_MESSAGE', message: { id: crypto.randomUUID(), role: 'bot', text: full } });
+      }
+      setFull(null);
+      setDisplayed('');
+      setStreamDone(false);
+    }
+  }, [full, displayed, streamDone, dispatch]);
 
   const sendMessage = useCallback(async (text: string) => {
     const trimmed = text.trim();
-    if (!trimmed || streamingText !== null) return;
+    if (!trimmed || full !== null) return;
 
     dispatch({
       type: 'ADD_CHAT_MESSAGE',
@@ -37,7 +58,6 @@ export default function ChatBot({ mobileMode = false }: ChatBotProps) {
     });
     setInput('');
 
-    // Build API-format history (exclude streaming placeholder, map 'bot' → 'assistant')
     const history = state.chatMessages.map(m => ({
       role: (m.role === 'bot' ? 'assistant' : 'user') as 'user' | 'assistant',
       content: m.text,
@@ -47,9 +67,11 @@ export default function ChatBot({ mobileMode = false }: ChatBotProps) {
     const contextBlock = buildContextBlock(state);
 
     abortRef.current = false;
-    setStreamingText('');
+    setStreamDone(false);
+    setDisplayed('');
+    setFull('');
 
-    let accumulated = '';
+    let acc = '';
     try {
       for await (const chunk of streamAI(history, contextBlock)) {
         if (abortRef.current) break;
@@ -58,32 +80,32 @@ export default function ChatBot({ mobileMode = false }: ChatBotProps) {
             dispatch(action as Parameters<typeof dispatch>[0]);
           }
         } else {
-          accumulated += chunk;
-          setStreamingText(accumulated);
+          acc += chunk;
+          setFull(acc);
         }
       }
     } catch {
-      accumulated = 'Sorry, something went wrong. Please try again.';
-      setStreamingText(null);
+      acc = 'Sorry, something went wrong. Please try again.';
+      setFull(acc);
+    } finally {
+      setStreamDone(true);
     }
+  }, [state, dispatch, full]);
 
-    if (!abortRef.current) {
-      dispatch({
-        type: 'ADD_CHAT_MESSAGE',
-        message: { id: crypto.randomUUID(), role: 'bot', text: accumulated },
-      });
-    }
-    setStreamingText(null);
-  }, [state, dispatch, streamingText]);
-
-  // Handle prompts queued externally (e.g. "Explain why" button)
+  // Handle prompts queued externally (e.g. "Explain why" button). A ref guard
+  // ensures each queued prompt fires sendMessage exactly once.
+  const handledPromptRef = useRef<string | null>(null);
+  const sendRef = useRef(sendMessage);
+  useEffect(() => { sendRef.current = sendMessage; }, [sendMessage]);
   useEffect(() => {
-    if (state.pendingPrompt && streamingText === null) {
-      const prompt = state.pendingPrompt;
+    const p = state.pendingPrompt;
+    if (p && full === null && handledPromptRef.current !== p) {
+      handledPromptRef.current = p;
       dispatch({ type: 'CLEAR_PENDING_PROMPT' });
-      sendMessage(prompt);
+      sendRef.current(p);
     }
-  }, [state.pendingPrompt, streamingText, sendMessage, dispatch]);
+    if (!p) handledPromptRef.current = null;
+  }, [state.pendingPrompt, full, dispatch]);
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === 'Enter') sendMessage(input);
@@ -103,12 +125,12 @@ export default function ChatBot({ mobileMode = false }: ChatBotProps) {
         </div>
         <ChatBody
           messages={state.chatMessages}
-          streamingText={streamingText}
+          streamingText={displayed}
           input={input}
           setInput={setInput}
           onKeyDown={handleKeyDown}
           onSend={sendMessage}
-          messagesEndRef={messagesEndRef}
+          isStreaming={isStreaming}
           mobileMode
         />
       </div>
@@ -135,12 +157,12 @@ export default function ChatBot({ mobileMode = false }: ChatBotProps) {
       >
         <ChatBody
           messages={state.chatMessages}
-          streamingText={streamingText}
+          streamingText={displayed}
           input={input}
           setInput={setInput}
           onKeyDown={handleKeyDown}
           onSend={sendMessage}
-          messagesEndRef={messagesEndRef}
+          isStreaming={isStreaming}
         />
       </div>
     </div>
@@ -154,19 +176,36 @@ interface ChatBodyProps {
   setInput: (v: string) => void;
   onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
   onSend: (text: string) => void;
-  messagesEndRef: React.RefObject<HTMLDivElement>;
+  isStreaming: boolean;
   mobileMode?: boolean;
 }
 
 function ChatBody({
-  messages, streamingText, input, setInput, onKeyDown, onSend, messagesEndRef, mobileMode = false,
+  messages, streamingText, input, setInput, onKeyDown, onSend, isStreaming, mobileMode = false,
 }: ChatBodyProps) {
-  const isEmpty = messages.length === 0 && streamingText === null;
-  const isStreaming = streamingText !== null;
+  const isEmpty = messages.length === 0 && !isStreaming;
+  const containerRef = useRef<HTMLDivElement>(null);
+  const atBottomRef = useRef(true);
+
+  // Only auto-scroll the messages container (never the page) and only when the
+  // user is already near the bottom — so reading earlier messages isn't disrupted
+  // and the mobile header stays put.
+  function handleScroll() {
+    const el = containerRef.current;
+    if (!el) return;
+    atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+  }
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (el && atBottomRef.current) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [messages, streamingText]);
 
   return (
     <div className="bg-white flex flex-col" style={{ height: mobileMode ? '100%' : '480px' }}>
-      <div className="flex-1 overflow-y-auto p-3 space-y-2 min-h-0">
+      <div ref={containerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-3 space-y-2 min-h-0">
         {isEmpty ? (
           <EmptyState onSend={onSend} />
         ) : (
@@ -175,21 +214,18 @@ function ChatBody({
               <MessageBubble key={m.id} role={m.role} text={m.text} />
             ))}
             {isStreaming && (
-              <MessageBubble role="bot" text={streamingText || '…'} streaming />
+              <MessageBubble role="bot" text={streamingText || ''} streaming />
             )}
           </>
         )}
-        <div ref={messagesEndRef} />
       </div>
 
       {!isEmpty && (
-        <>
-          <div className="bg-red-50 border-t border-red-100 px-3 py-1.5">
-            <p className="text-[10px] text-red-600 leading-snug">
-              Responses may contain mistakes. For room bookings, contact the Registrar (Room 110).
-            </p>
-          </div>
-        </>
+        <div className="bg-red-50 border-t border-red-200 px-3 py-1.5">
+          <p className="text-[10px] text-red-700 leading-snug">
+            Responses may contain mistakes. For room bookings, contact the Registrar (Room 110).
+          </p>
+        </div>
       )}
 
       <div className="px-3 pb-3 pt-1 flex gap-2">
@@ -246,9 +282,9 @@ function MessageBubble({
       <div
         className={`max-w-[85%] rounded-xl px-3 py-2 text-sm leading-snug whitespace-pre-wrap ${
           role === 'user' ? 'bg-brand-gray text-black' : 'bg-brand-blue text-white'
-        } ${streaming ? 'opacity-80' : ''}`}
+        } ${streaming ? 'opacity-90' : ''}`}
       >
-        {text}
+        {text || (streaming ? '' : '')}
         {streaming && (
           <span className="inline-block w-1.5 h-3.5 ml-0.5 bg-white/70 rounded-sm animate-pulse align-middle" />
         )}

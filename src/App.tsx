@@ -6,6 +6,7 @@ import { loadCalendar } from './data/parseCalendar';
 import Sidebar from './components/Sidebar';
 import CalendarView from './components/Calendar';
 import ChatBot from './components/Chat';
+import AutoRegen from './components/AutoRegen';
 
 // Loads the real student schedule from the Excel file on first mount.
 // Falls back gracefully to synthetic data if the fetch fails.
@@ -73,6 +74,7 @@ export default function App() {
     <AppProvider>
       <ExcelLoader />
       <CalendarLoader />
+      <AutoRegen />
       <Layout />
     </AppProvider>
   );

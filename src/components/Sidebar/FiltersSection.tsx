@@ -1,6 +1,5 @@
-import { useState, useRef, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
-import { VerticalDots } from '../Icons';
+import { TrashIcon, PencilIcon } from '../Icons';
 import type { Filter } from '../../types';
 
 function summarize(arr: string[]): string {
@@ -11,28 +10,7 @@ function summarize(arr: string[]): string {
 
 function FilterRow({ filter }: { filter: Filter }) {
   const { state, dispatch } = useApp();
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLTableDataCellElement>(null);
   const isDeleting = state.deletingFilterId === filter.id;
-
-  // Pulse once when deletion is triggered, then stop
-  const [pulsing, setPulsing] = useState(false);
-  useEffect(() => {
-    if (!isDeleting) { setPulsing(false); return; }
-    setPulsing(true);
-    const t = setTimeout(() => setPulsing(false), 700);
-    return () => clearTimeout(t);
-  }, [isDeleting]);
-
-  useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuOpen(false);
-      }
-    }
-    document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
-  }, []);
 
   const deptLabel = summarize(filter.depts);
   const yearLabel = summarize(filter.years);
@@ -40,27 +18,28 @@ function FilterRow({ filter }: { filter: Filter }) {
 
   if (isDeleting) {
     return (
-      <tr className="border-l-4 border-red-700 bg-red-50 transition-all">
-        <td
-          colSpan={3}
-          className={`px-3 py-2 text-sm text-red-800 font-medium ${pulsing ? 'animate-pulse' : ''}`}
-        >
-          Delete this filter?
-        </td>
-        <td className="px-2 py-2">
-          <div className="flex gap-2 items-center">
-            <button
-              onClick={() => dispatch({ type: 'SET_DELETING_FILTER', id: null })}
-              className="text-sm text-gray-600 hover:text-gray-900 px-1"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={() => dispatch({ type: 'DELETE_FILTER', id: filter.id })}
-              className="text-sm px-2 py-1 bg-red-700 text-white rounded-lg font-medium hover:bg-red-800"
-            >
-              Confirm
-            </button>
+      <tr>
+        <td colSpan={4} className="p-0">
+          <div className="relative overflow-hidden rounded-lg">
+            {/* Pulsing background layer only — text stays steady */}
+            <div className="absolute inset-0 bg-red-100 animate-pulse" />
+            <div className="relative flex items-center justify-between gap-2 px-3 py-2">
+              <span className="text-sm text-red-800 font-medium">Delete this filter?</span>
+              <div className="flex gap-2 items-center shrink-0">
+                <button
+                  onClick={() => dispatch({ type: 'SET_DELETING_FILTER', id: null })}
+                  className="text-xs text-gray-600 hover:text-gray-900 px-1"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => dispatch({ type: 'DELETE_FILTER', id: filter.id })}
+                  className="text-xs px-2 py-1 bg-red-700 text-white rounded-lg font-medium hover:bg-red-800"
+                >
+                  Confirm
+                </button>
+              </div>
+            </div>
           </div>
         </td>
       </tr>
@@ -68,39 +47,33 @@ function FilterRow({ filter }: { filter: Filter }) {
   }
 
   return (
-    <tr className="hover:bg-gray-50 transition-colors border-b border-brand-gray/40 last:border-0">
+    <tr
+      className="hover:bg-brand-light-blue/50 transition-colors border-b border-brand-gray/40 last:border-0 cursor-pointer"
+      onClick={() => dispatch({ type: 'SET_MODAL', modal: { type: 'edit', filterId: filter.id } })}
+      title="Click to edit this filter"
+    >
       <td className="px-3 py-2 text-sm text-gray-700 max-w-[60px] truncate">{deptLabel}</td>
       <td className="px-2 py-2 text-sm text-gray-700 max-w-[60px] truncate">{yearLabel}</td>
       <td className="px-2 py-2 text-sm text-gray-700">{statusLabel}</td>
-      <td className="px-2 py-2 relative" ref={menuRef}>
-        <button
-          onClick={() => setMenuOpen(v => !v)}
-          className="text-gray-400 hover:text-gray-700 p-0.5 rounded-lg"
-        >
-          <VerticalDots />
-        </button>
-        {menuOpen && (
-          <div className="absolute right-0 top-full mt-0.5 w-32 bg-white border border-brand-gray rounded-xl shadow-lg z-20 overflow-hidden">
-            <button
-              onClick={() => {
-                dispatch({ type: 'SET_MODAL', modal: { type: 'edit', filterId: filter.id } });
-                setMenuOpen(false);
-              }}
-              className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-            >
-              Edit
-            </button>
-            <button
-              onClick={() => {
-                dispatch({ type: 'SET_DELETING_FILTER', id: filter.id });
-                setMenuOpen(false);
-              }}
-              className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50"
-            >
-              Delete
-            </button>
-          </div>
-        )}
+      <td className="px-1 py-2 w-14" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-end gap-0.5">
+          <button
+            onClick={() => dispatch({ type: 'SET_MODAL', modal: { type: 'edit', filterId: filter.id } })}
+            className="text-gray-400 hover:text-brand-blue p-1 rounded-lg transition-colors"
+            aria-label="Edit filter"
+            title="Edit filter"
+          >
+            <PencilIcon className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => dispatch({ type: 'SET_DELETING_FILTER', id: filter.id })}
+            className="text-gray-400 hover:text-red-600 p-1 rounded-lg transition-colors"
+            aria-label="Delete filter"
+            title="Delete filter"
+          >
+            <TrashIcon className="w-4 h-4" />
+          </button>
+        </div>
       </td>
     </tr>
   );
@@ -110,21 +83,21 @@ export default function FiltersSection() {
   const { state, dispatch } = useApp();
 
   return (
-    <div className="px-5 py-3">
-      <table className="w-full mb-2">
+    <div>
+      <table className="w-full table-fixed mb-2">
         <thead>
           <tr className="text-sm text-gray-400 border-b border-brand-gray">
-            <th className="px-3 py-1 text-left font-normal">Depts</th>
+            <th className="px-3 py-1 text-left font-normal">Departments</th>
             <th className="px-2 py-1 text-left font-normal">Years</th>
             <th className="px-2 py-1 text-left font-normal">Status</th>
-            <th className="px-2 py-1" />
+            <th className="px-1 py-1 w-14" />
           </tr>
         </thead>
         <tbody>
           {state.filters.length === 0 ? (
             <tr>
               <td colSpan={4} className="px-3 py-2 text-sm text-gray-400 italic">
-                No filters — showing all students
+                No filter applied — all students considered
               </td>
             </tr>
           ) : (

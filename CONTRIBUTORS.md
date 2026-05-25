@@ -29,6 +29,7 @@ The AI chatbot requires an Anthropic API key. Without one, all other features wo
 | Vite | 5 | Dev server, bundler, env vars |
 | Tailwind CSS | 3 | Styling — brand tokens, animations |
 | SheetJS (`xlsx`) | latest | Client-side Excel parsing |
+| react-day-picker | 10 | "Starting from" date picker widget |
 | `@anthropic-ai/sdk` | 0.98 | Claude API — streaming chatbot + tool use |
 | Python 3 + openpyxl | — | Dataset generation scripts (not part of the SPA) |
 | GitHub Actions | — | Deploy to GitHub Pages on push to `main` |
@@ -48,37 +49,44 @@ ScheduleWhen/
 │   └── dept_data.py                Per-department course lists
 ├── src/
 │   ├── main.tsx                    Entry point
-│   ├── App.tsx                     Root layout — responsive desktop/mobile + data loaders
+│   ├── App.tsx                     Root layout — responsive desktop/mobile + data loaders + <AutoRegen/>
 │   ├── constants.ts                Time slots, grid rows, semester bounds (ISO dates)
 │   ├── types.ts                    All shared TypeScript types
 │   ├── context/
 │   │   └── AppContext.tsx          Global state via useReducer + useApp() hook
 │   ├── algorithm/
-│   │   └── score.ts                Sliding-window scorer, lunch bonuses, suggestions
+│   │   └── score.ts                Sliding-window scorer, lunch bonuses, suggestions, fixed-time mode
 │   ├── data/
 │   │   ├── loader.ts               SheetJS parser — reads Excel into Student[]
 │   │   ├── parseCalendar.ts        ICS parser — reads academic calendar into AcademicEvent[]
 │   │   └── synthetic.ts            LCG-seeded fallback dataset (dev reference, not loaded)
 │   ├── hooks/
-│   │   └── useResults.ts           Computes per-slot heatmap values (useMemo)
+│   │   ├── useResults.ts           Computes per-slot heatmap values for all 6 days (useMemo)
+│   │   └── useGenerate.ts          Shared "run the algorithm" callback (manual + auto)
 │   ├── lib/
 │   │   ├── ai.ts                   Claude API client — tool use, streaming, rate limiting
+│   │   ├── rooms.ts                Room-group lookup by target size + department labs
+│   │   ├── exportCsv.ts            Serialises suggestions + rooms to a downloadable CSV
 │   │   └── shims/                  Stubs for Node.js built-ins pulled in by the Anthropic SDK
 │   └── components/
 │       ├── Icons.tsx               All inline SVG icons
+│       ├── AutoRegen.tsx           Always-mounted effect that auto-reruns the algorithm
+│       ├── common/
+│       │   └── HelpTip.tsx         Portal tooltip — "?" icon (card titles) or text-docked (labels)
 │       ├── Sidebar/
-│       │   ├── index.tsx           Shell + modal routing
+│       │   ├── index.tsx           Shell (subtle cards) + modal routing + CSV export action
 │       │   ├── SidebarHeader.tsx   Brand header
-│       │   ├── EventSpec.tsx       Duration, days, priority, from-date, target inputs
-│       │   ├── FiltersSection.tsx  Audience filter table with inline delete confirm
+│       │   ├── EventSpec.tsx       Duration (stepper + chevron presets), days, priority, date, target
+│       │   ├── DatePicker.tsx      react-day-picker popover (semester-clamped)
+│       │   ├── FiltersSection.tsx  Audience filter table; row-click edits, trash button deletes
 │       │   ├── FilterModal.tsx     Add/edit filter modal (portal-rendered dropdowns)
-│       │   ├── GenerateButton.tsx  Runs algorithm; auto-update toggle
-│       │   └── ResultsSection.tsx  Result chips + room suggestions
+│       │   ├── GenerateButton.tsx  Runs algorithm (pulses when filters added) / Explain why
+│       │   └── ResultsSection.tsx  Result chips (fill bars) + room suggestions
 │       ├── Calendar/
 │       │   ├── index.tsx           Calendar shell + no-timeslot banner
 │       │   ├── CalendarHeader.tsx  Week navigation (Today / ‹ ›)
 │       │   ├── AllDayRow.tsx       Academic calendar event bars (Google Calendar style)
-│       │   └── HeatmapGrid.tsx     CSS-grid heatmap + chips + tooltip
+│       │   └── HeatmapGrid.tsx     CSS-grid heatmap (6 days) + chips + tooltips + floating legend
 │       └── Chat/
 │           └── index.tsx           Collapsible AI chatbot (desktop fixed, mobile fullscreen)
 ├── .env.example                    Template — copy to .env.local
@@ -100,12 +108,16 @@ All state lives in `AppContext.tsx` — a single `useReducer` store exposed via 
 | `students` | `Student[]` | Loaded from Excel on mount |
 | `academicEvents` | `AcademicEvent[]` | Loaded from ICS on mount |
 | `selectedDays` | `boolean[]` | Which days (Mon–Sat) the user has toggled on |
+| `filters` | `Filter[]` | Audience filters; empty = all students (no default placeholder filter) |
+| `fixedStartMin` | `number \| null` | Chatbot-pinned exact start time; when set the scorer locks it and picks the best day(s) |
 | `isDirty` | `boolean` | True when params changed since last Generate |
 | `algorithmResult` | `AlgorithmResult \| null` | Last Generate output |
-| `autoRegen` | `boolean` | Re-run algorithm on every param change |
+| `autoRegen` | `boolean` | Always `true` — auto-update is the default (the old toggle was removed) |
 | `noTimeslotBanner` | `string \| null` | Non-blocking warning shown in the heatmap |
 
-**Dirty actions**: any action in `DIRTY_ACTIONS` (including `SET_WEEK_OFFSET`) sets `isDirty = true`, hiding chips and showing the Generate button. Auto-regen watches `isDirty` and fires if the toggle is on.
+**Dirty actions**: any action in `DIRTY_ACTIONS` (including `SET_WEEK_OFFSET`) sets `isDirty = true`, hiding chips and showing the Generate button. `<AutoRegen/>` (mounted at the App root so it survives mobile view switches) watches `isDirty` and re-runs the algorithm via the `useGenerate` hook. Only an explicit Generate click scrolls the results into view.
+
+**Chat auto-collapse**: parameter actions carry an optional `fromAI` flag. A user-driven param edit (in `COLLAPSE_ON_ACTIONS`) collapses the chat window; the same action dispatched by the chatbot's tool use sets `fromAI: true` and does not.
 
 ---
 
@@ -117,6 +129,10 @@ All state lives in `AppContext.tsx` — a single `useReducer` store exposed via 
 2. **Score each `(day, startMin)` window** — `rawFreePercent = effectiveFree / eligibleTotal × 100`, then multiply by `timeWeight` (peaks at 1.0 in early afternoon), `lunchAdjust` (bonus for 12:05-start events), and `mixAdjust` (penalises early/late slots based on UG/PG split).
 3. **Build suggestions** — best MW pair, best TTh pair, two non-overlapping alternatives. A 12:05 lunch slot is always guaranteed if it scores ≥ 20%.
 4. **Retry without time preference** if the target headcount isn't met within the preferred period.
+
+### Fixed-time mode
+
+`runAlgorithm` takes an optional `fixedStartMin`. When set (via the chatbot's `set_fixed_time` tool), the scorer evaluates **only** that exact start across every active day — bypassing the candidate-start grid and time-period filter — so pairing/alternatives effectively "choose the best day(s)" for that time. The target-not-met period-expansion retry is skipped in this mode. A clearable "Fixed start" chip appears in the sidebar.
 
 ### Semester and holiday filtering
 
@@ -132,11 +148,14 @@ If all active days are blocked, a red banner is shown in the heatmap instead of 
 
 `HeatmapGrid.tsx` uses a CSS grid with `fr` rows proportional to minutes (1 fr = 1 min, 840 fr total for 8:00–22:00). Key points for contributors:
 
-- **Gradient**: min–max normalised per run. The least-available slot maps to white `#ffffff`; the most-available maps to brand-blue `#2d457c`. Blank (no colour) before Generate is pressed.
+- **All six days** (Mon–Sat) always render; `useResults` computes availability for every day, not just the selected ones.
+- **Gradient**: min–max normalised per run. The least-available slot maps to brand-blue `#2d457c`; the most-available maps to white `#ffffff` (i.e. darker = fewer free). Blank before Generate is pressed.
+- **Disabled days**: still show their heat, overlaid with a translucent `DISABLED_TINT` discoloration that runs from the all-day band down through the grid. Headers mark enabled days with a blue date circle, disabled days plain, and the current day with a golden outline.
 - **Blanked columns**: days outside the semester or covered by a `no-classes` event render white with no tooltip.
-- **Chips**: positioned with `top`/`height` as percentages of the grid height. `ResizeObserver` switches each chip between compact and wide layouts at 130 px / 110 px (dead zone prevents flicker).
-- **Tooltip**: rendered via `createPortal` into `document.body` to escape overflow clipping.
-- **Slide animation**: the outer `key={weekOffset}` triggers a CSS slide-left/slide-right on week navigation.
+- **Chips**: positioned with `top`/`height` as percentages of the grid height, with a `minHeight` floor so short events stay readable. They share the sidebar chip's visual design (fill bar, colours, star). `ResizeObserver` switches between compact and wide layouts (hysteresis prevents flicker).
+- **Tooltips**: portal-rendered into `document.body`. A `cell` tooltip follows the cursor (only once results exist); a `chip` tooltip shows on hovering/clicking a suggestion chip.
+- **Legend**: a floating "Free%" notch on the right edge, vertically centred, shown only after Generate.
+- **Slide animation**: the inner `key={weekOffset}` triggers a CSS slide-left/slide-right on week navigation; the legend sits outside it so it stays put.
 - **All-day row**: `AllDayRow.tsx` uses greedy row-packing to render overlapping ICS events as Google Calendar–style bars. Dates are always computed in local time — never use `toISOString()` on a local-midnight `Date`.
 
 ---
@@ -146,18 +165,22 @@ If all active days are blocked, a red banner is shown in the heatmap instead of 
 `src/lib/ai.ts` — uses the Anthropic SDK with `dangerouslyAllowBrowser: true`. The model is `claude-haiku-4-5-20251001`.
 
 **Two-phase flow:**
-1. Non-streaming call with four tools (`set_duration`, `set_days`, `set_time_periods`, `set_target_participants`). If the model calls tools, those actions are dispatched to the context immediately (sidebar updates live).
+1. Non-streaming call with the tools (`set_duration`, `set_days`, `set_time_periods`, `set_target_participants`, `set_start_date`, `set_fixed_time`). If the model calls tools, those actions are dispatched to the context immediately (sidebar updates live). Every AI-dispatched action carries `fromAI: true` so it doesn't collapse the chat.
 2. Streaming call with the tool results to get the natural-language response.
+
+**Typing effect**: the streamed text accumulates into `full`; a `displayed` substring is revealed gradually (`TYPE_CHARS_PER_TICK` per tick). The bot message is committed only once `displayed` has caught up **and** `streamDone` is set — both are React state, so completion fires reliably even for tool-only turns (don't reintroduce a ref that nudges a value to itself; React bails on no-op state updates and the turn hangs as "Assistant is typing").
+
+**Autoscroll**: the messages container scrolls to the bottom only when the user is already near it — never the page (this keeps the mobile header reachable).
 
 **Rate limiting**: 10 requests per 60 s, enforced in-memory per browser session.
 
-**Context injection**: `buildContextBlock(state)` serialises the full current state (params + all four suggestions + scores) into the system prompt before every request.
+**Context injection**: `buildContextBlock(state)` serialises the full current state (params, fixed start time, start date, filters + all four suggestions + scores) into the system prompt before every request.
 
 ### Adding a new tool
 
 1. Add its schema to the `TOOLS` array in `ai.ts`.
-2. Add a case to `processToolCall` that validates input and pushes a `ParamAction`.
-3. If the action type is new, add it to `AppContext.tsx` (Action union + reducer + `DIRTY_ACTIONS` if it affects results).
+2. Add a case to `processToolCall` that validates input and pushes a `ParamAction` **tagged `fromAI: true`** (add the variant to the `ParamAction` union too).
+3. If the action type is new, add it to `AppContext.tsx` (Action union + reducer + `DIRTY_ACTIONS` if it affects results; add to `COLLAPSE_ON_ACTIONS` if a user edit of it should collapse the chat).
 
 ---
 

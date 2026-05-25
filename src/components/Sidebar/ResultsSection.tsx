@@ -1,83 +1,51 @@
 import { useApp } from '../../context/AppContext';
 import { StarIcon } from '../Icons';
+import { getRoomGroups } from '../../lib/rooms';
 import type { Suggestion } from '../../types';
-
-// ── Room data ───────────────────────────────────────────────────────────────
-
-interface RoomGroup {
-  label: string;
-  note: string;
-  rooms: string[];
-}
-
-const COMP_LABS: { depts: string[]; rooms: string[]; note: string }[] = [
-  { depts: ['SFW', 'AMI'], rooms: ['G30', 'G31', '432', '433'], note: 'SFW · AMI' },
-  { depts: ['JMC', 'TCMA'], rooms: ['C07'], note: 'JMC · TCMA' },
-  { depts: ['JMC', 'TCMA'], rooms: ['223', '233'], note: 'Graphic Design' },
-];
-
-function getRoomGroups(target: number, filterDepts: string[]): RoomGroup[] {
-  const groups: RoomGroup[] = [];
-
-  if (target >= 60) {
-    groups.push({ label: 'Large Rooms', note: '60+ seats', rooms: ['410', '434', '440', 'Forum'] });
-  } else if (target >= 30) {
-    groups.push({ label: 'Medium Rooms', note: '30–60 seats', rooms: ['G34', '220', '435'] });
-    groups.push({ label: 'Large Rooms', note: '60+ seats', rooms: ['410', '434', '440', 'Forum'] });
-  } else if (target >= 10) {
-    groups.push({ label: 'Small Rooms', note: '10–30 seats', rooms: ['G35', 'G33', 'G32', '203', '305', '405'] });
-    groups.push({ label: 'Medium Rooms', note: '30–60 seats', rooms: ['G34', '220', '435'] });
-  } else {
-    groups.push({ label: 'Very Small Rooms', note: '< 10 seats', rooms: ['211', '212', '213', '340', '411'] });
-    groups.push({ label: 'Small Rooms', note: '10–30 seats', rooms: ['G35', 'G33', 'G32', '203', '305', '405'] });
-  }
-
-  // Append relevant computer labs when specific departments are in the filter
-  if (filterDepts.length > 0) {
-    for (const lab of COMP_LABS) {
-      if (lab.depts.some(d => filterDepts.includes(d))) {
-        if (!groups.some(g => g.label === 'Computer Labs' && g.note === lab.note)) {
-          groups.push({ label: 'Computer Labs', note: lab.note, rooms: lab.rooms });
-        }
-      }
-    }
-  }
-
-  return groups;
-}
 
 // ── Chips ───────────────────────────────────────────────────────────────────
 
-function SuggestionChip({ suggestion, preferred, stale, isBest }: {
+function FillBar({ pct, preferred }: { pct: number; preferred: boolean }) {
+  return (
+    <div className={`mt-1.5 h-1 rounded-full overflow-hidden ${preferred ? 'bg-white/25' : 'bg-gray-200'}`}>
+      <div
+        className={`h-full rounded-full ${preferred ? 'bg-white' : 'bg-brand-mid-blue'}`}
+        style={{ width: `${Math.max(0, Math.min(100, pct))}%` }}
+      />
+    </div>
+  );
+}
+
+function SuggestionChip({ suggestion, preferred, isBest }: {
   suggestion: Suggestion;
   preferred: boolean;
-  stale: boolean;
   isBest: boolean;
 }) {
   const dayLabel = suggestion.pairedDay
     ? `${suggestion.day} / ${suggestion.pairedDay}`
     : suggestion.day;
-  const sub = preferred ? 'text-blue-200' : 'text-blue-400';
-  const goldRing: React.CSSProperties = isBest
+  const pct = Math.round(suggestion.rawFreePercent);
+  const sub = preferred ? 'text-blue-200' : 'text-gray-400';
+  // Best slot gets the gold ring; alternatives are intentionally quieter.
+  const goldRing: React.CSSProperties = isBest && preferred
     ? { outline: '2px solid #dba620', outlineOffset: '2px' }
     : {};
 
+  const shell = preferred
+    ? 'bg-brand-blue text-white'
+    : 'bg-gray-50 border border-brand-gray text-gray-600';
+
   return (
-    <div
-      className={`rounded-2xl p-3 flex flex-col gap-1 transition-opacity relative ${stale ? 'opacity-50' : ''} ${
-        preferred ? 'bg-brand-blue text-white' : 'bg-white border-2 border-brand-blue text-brand-blue'
-      }`}
-      style={goldRing}
-    >
-      {isBest && (
+    <div className={`rounded-2xl p-3 flex flex-col gap-1 relative ${shell}`} style={goldRing}>
+      {isBest && preferred && (
         <span className="absolute top-2 right-2.5 text-brand-gold opacity-90">
           <StarIcon className="w-3 h-3" />
         </span>
       )}
       <div className="flex items-center justify-between pr-4">
         <span className="text-sm font-bold leading-none">{dayLabel}</span>
-        <span className={`text-base font-black leading-none ${preferred ? 'text-white' : 'text-brand-blue'}`}>
-          {Math.round(suggestion.rawFreePercent)}%
+        <span className={`text-base font-black leading-none ${preferred ? 'text-white' : 'text-gray-700'}`}>
+          {pct}%
         </span>
       </div>
       <div className="flex items-center gap-1.5 mt-0.5">
@@ -88,6 +56,7 @@ function SuggestionChip({ suggestion, preferred, stale, isBest }: {
       <span className={`text-xs leading-none ${sub}`}>
         ~{suggestion.onCampusCount.toLocaleString()} on campus
       </span>
+      <FillBar pct={suggestion.rawFreePercent} preferred={preferred} />
     </div>
   );
 }
@@ -130,7 +99,7 @@ export default function ResultsSection({ targetParticipants, mobileMode = false,
   const roomGroups  = getRoomGroups(targetParticipants, filterDepts);
 
   return (
-    <div className="px-5 py-3 space-y-4">
+    <div className="space-y-4">
       {mobileMode && onViewHeatmap && (
         <button
           onClick={onViewHeatmap}
@@ -157,18 +126,21 @@ export default function ResultsSection({ targetParticipants, mobileMode = false,
             </p>
           )}
           {!targetMet && !prefOverridden && overrideReason && (
-            <p className="text-xs text-red-600 font-medium bg-red-50 rounded-lg px-3 py-1.5 leading-snug">
+            <p className="text-xs text-red-700 font-medium bg-red-50 border border-red-200 rounded-lg px-3 py-1.5 leading-snug">
               ✕ Target unreachable: {overrideReason}
             </p>
           )}
 
           {/* Preferred suggestions */}
           <div>
-            <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Recommended</p>
+            <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Recommended</p>
+            <p className="text-[11px] text-gray-400 mb-2 leading-snug">
+              % = share of eligible students free during the window.
+            </p>
             <div className="grid grid-cols-2 gap-2">
               {preferred.length > 0
                 ? preferred.map((s, i) => (
-                    <SuggestionChip key={i} suggestion={s} preferred stale={false} isBest={s.weightedScore === bestScore} />
+                    <SuggestionChip key={i} suggestion={s} preferred isBest={s.weightedScore === bestScore} />
                   ))
                 : [<EmptyChip key={0} />, <EmptyChip key={1} />]
               }
@@ -179,10 +151,10 @@ export default function ResultsSection({ targetParticipants, mobileMode = false,
           {/* Alternative suggestions */}
           {hasAlts && (
             <div>
-              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Suggested</p>
+              <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Other options</p>
               <div className="grid grid-cols-2 gap-2">
                 {alternatives.map((s, i) => (
-                  <SuggestionChip key={i} suggestion={s} preferred={false} stale={false} isBest={s.weightedScore === bestScore} />
+                  <SuggestionChip key={i} suggestion={s} preferred={false} isBest={s.weightedScore === bestScore} />
                 ))}
                 {alternatives.length === 1 && <EmptyChip />}
               </div>
@@ -210,9 +182,9 @@ export default function ResultsSection({ targetParticipants, mobileMode = false,
           </div>
 
           {/* Disclaimer */}
-          <div className="text-xs leading-relaxed rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 space-y-1 text-red-900">
+          <div className="text-xs leading-relaxed rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 space-y-1 text-red-700">
             <p className="font-semibold">Rooms may not be available. Please confirm with the Registrar (Room 110).</p>
-            <p>Data is synthetic and was mined on May 21st, 2026</p>
+            <p>Data is synthetic and was mined on May 21st, 2026.</p>
           </div>
         </>
       )}

@@ -32,12 +32,17 @@ export default {
           from: { opacity: '0' },
           to:   { opacity: '1' },
         },
+        pulseBlue: {
+          '0%, 100%': { boxShadow: '0 0 0 0 rgba(147, 180, 217, 0.0)' },
+          '50%':      { boxShadow: '0 0 0 4px rgba(147, 180, 217, 0.55)' },
+        },
       },
       animation: {
         'slide-from-right': 'slideFromRight 0.28s ease-out',
         'slide-from-left':  'slideFromLeft 0.28s ease-out',
         'modal-in':         'modalIn 0.18s ease-out',
         'fade-in':          'fadeIn 0.15s ease-out',
+        'pulse-blue':       'pulseBlue 1.8s ease-in-out infinite',
       },
     },
   },

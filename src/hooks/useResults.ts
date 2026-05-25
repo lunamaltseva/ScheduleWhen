@@ -59,9 +59,7 @@ function matchesFilter(student: Student, filter: Filter): boolean {
 
 // Mirror getEligibleStudents from score.ts: union across filters, no double-counting.
 function getEligible(students: Student[], filters: Filter[]): Student[] {
-  const isDefaultOnly =
-    filters.length === 1 && filters[0].id === 'default' && filters[0].depts.length === 0;
-  if (isDefaultOnly) return students;
+  if (filters.length === 0) return students;
   return students.filter(s => filters.some(f => matchesFilter(s, f)));
 }
 
@@ -80,12 +78,11 @@ export function useResults(): {
   fiftyMinDays: Set<string>;
 } {
   const { state } = useApp();
-  const { selectedDays, filters, students, weekOffset, academicEvents } = state;
+  const { filters, students, weekOffset, academicEvents } = state;
 
   return useMemo(() => {
-    const activeDayIndices = selectedDays
-      .map((on, i) => (on ? i : -1))
-      .filter(i => i >= 0);
+    // Compute every weekday — disabled days still render (discolored) in the heatmap.
+    const allDayIndices = [0, 1, 2, 3, 4, 5];
 
     // Use the same union logic as the algorithm — no double-counting across filters
     const eligible = getEligible(students, filters);
@@ -98,12 +95,12 @@ export function useResults(): {
 
     // On-campus count for the whole day — for tooltip context only.
     const onCampusDayMap: Record<string, number> = {};
-    for (const dayIdx of activeDayIndices) {
+    for (const dayIdx of allDayIndices) {
       const day = DAYS_FULL[dayIdx];
       onCampusDayMap[day] = eligible.filter(s => s.periods.some(p => p.day === day)).length;
     }
 
-    for (const dayIdx of activeDayIndices) {
+    for (const dayIdx of allDayIndices) {
       const day = DAYS_FULL[dayIdx];
       const onCampusDay = onCampusDayMap[day];
       const isFiftyMin = fiftyMinDays.has(day);
@@ -157,5 +154,5 @@ export function useResults(): {
     }
 
     return { heatmap, cellData, eligibleStudents: eligible, fiftyMinDays };
-  }, [selectedDays, filters, students, weekOffset, academicEvents]);
+  }, [filters, students, weekOffset, academicEvents]);
 }

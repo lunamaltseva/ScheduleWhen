@@ -154,9 +154,7 @@ function matchesFilter(student: Student, filter: Filter): boolean {
 }
 
 function getEligibleStudents(students: Student[], filters: Filter[]): Student[] {
-  const isDefaultOnly =
-    filters.length === 1 && filters[0].id === 'default' && filters[0].depts.length === 0;
-  if (filters.length === 0 || isDefaultOnly) return students;
+  if (filters.length === 0) return students;
   return students.filter(s => filters.some(f => matchesFilter(s, f)));
 }
 
@@ -378,9 +376,16 @@ export function runAlgorithm(
   timePeriods: TimePeriod[],
   targetParticipants: number,
   fiftyMinDays: Set<string> = new Set(),
+  fixedStartMin: number | null = null,
 ): AlgorithmResult {
   const eligible   = getEligibleStudents(students, filters);
   const activeDays = DAYS_FULL.filter((_, i) => selectedDays[i]);
+
+  // Fixed-time mode: the user pinned an exact start; score that single start
+  // across every active day and let buildSuggestions choose the best day(s).
+  const fixedActive = fixedStartMin != null
+    && fixedStartMin >= DAY_START_MIN
+    && fixedStartMin + duration <= DAY_END_MIN;
 
   // 50-min days are discouraged for scheduling — classes are compressed and the
   // day is shorter, making it harder to find a good slot for all attendees.
@@ -392,7 +397,10 @@ export function runAlgorithm(
     for (const day of activeDays) {
       if (fiftyMinDays.has(day)) {
         const remapped = studentsWithRemapped50min(eligible, day);
-        const fiftyStarts = FIFTY_MIN_STARTS.filter(m => m + duration <= FIFTY_MIN_DAY_END);
+        // In fixed-time mode the user's exact start overrides the 50-min slot grid.
+        const fiftyStarts = fixedActive
+          ? [fixedStartMin!].filter(m => m + duration <= FIFTY_MIN_DAY_END)
+          : FIFTY_MIN_STARTS.filter(m => m + duration <= FIFTY_MIN_DAY_END);
         for (const sm of fiftyStarts) {
           const ws = scoreWindow(day, sm, duration, remapped);
           scores.push({ ...ws, score: ws.score * FIFTY_MIN_PENALTY });
@@ -406,14 +414,17 @@ export function runAlgorithm(
     return scores;
   }
 
-  // Primary run: respect user's time-period preference
-  const filteredStarts = getCandidateStarts(duration).filter(m => {
-    if (timePeriods.length === 0) return true;
-    return timePeriods.some(p => {
-      const [lo, hi] = PRIORITY_MINUTES[p];
-      return m >= lo && m < hi;
-    });
-  });
+  // Primary run: in fixed-time mode use only the pinned start; otherwise respect
+  // the user's time-period preference.
+  const filteredStarts = fixedActive
+    ? [fixedStartMin!]
+    : getCandidateStarts(duration).filter(m => {
+        if (timePeriods.length === 0) return true;
+        return timePeriods.some(p => {
+          const [lo, hi] = PRIORITY_MINUTES[p];
+          return m >= lo && m < hi;
+        });
+      });
 
   const allScores = scoreAllWindows(filteredStarts);
   const { suggestions } = buildSuggestions(allScores, duration, activeDays);
@@ -422,11 +433,12 @@ export function runAlgorithm(
   const targetMet = bestCount >= targetParticipants;
 
   // If target not met, try expanding to all time periods
+  // (skipped in fixed-time mode — the start is locked by the user).
   let prefOverridden = false;
   let overrideReason: string | undefined;
   let finalSuggestions = suggestions;
 
-  if (!targetMet && timePeriods.length > 0) {
+  if (!targetMet && !fixedActive && timePeriods.length > 0) {
     const allStarts    = getCandidateStarts(duration);
     const allScoresExp = scoreAllWindows(allStarts);
     const { suggestions: expandedSugg } = buildSuggestions(allScoresExp, duration, activeDays);
