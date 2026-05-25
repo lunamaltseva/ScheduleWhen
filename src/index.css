@@ -1,3 +1,11 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* react-day-picker brand accent */
+.rdp-brand {
+  --rdp-accent-color: #2d457c;
+  --rdp-accent-background-color: #e8edf5;
+  --rdp-today-color: #2d457c;
+  font-size: 0.85rem;
+}

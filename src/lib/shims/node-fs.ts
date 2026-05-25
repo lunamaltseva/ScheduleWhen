@@ -1,0 +1,10 @@
+const noop = () => undefined;
+export const readFile = noop;
+export const writeFile = noop;
+export const stat = noop;
+export const lstat = noop;
+export const mkdir = noop;
+export const readlink = noop;
+export const existsSync = () => false;
+export const readFileSync = noop;
+export default {};
