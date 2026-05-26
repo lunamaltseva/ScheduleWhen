@@ -187,12 +187,28 @@ function StatusDropdown({ selected, onChange, isOpen, onOpen, onClose, anchor }:
   anchor: DOMRect | null;
 }) {
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const opts: StatusValue[] = ['Any', 'Domestic', 'International'];
+
+  // Checkbox model: Domestic + International. Both or neither checked ⇒ 'Any'.
+  const domChecked  = selected === 'Domestic'      || selected === 'Any';
+  const intlChecked = selected === 'International'  || selected === 'Any';
+
+  function toggle(which: 'dom' | 'intl') {
+    const nextDom  = which === 'dom'  ? !domChecked  : domChecked;
+    const nextIntl = which === 'intl' ? !intlChecked : intlChecked;
+    if (nextDom === nextIntl) onChange('Any');           // both or neither
+    else if (nextDom)         onChange('Domestic');
+    else                      onChange('International');
+  }
+
+  const rows: { key: 'dom' | 'intl'; label: string; checked: boolean }[] = [
+    { key: 'dom',  label: 'Domestic',      checked: domChecked },
+    { key: 'intl', label: 'International', checked: intlChecked },
+  ];
 
   return (
     <div>
       <p className="text-sm font-semibold text-gray-600 mb-1.5">
-        <HelpTip text="Limit to Domestic or International students. 'Any' includes all students regardless of status.">Status</HelpTip>
+        <HelpTip text="Limit to Domestic or International students. Checking both (or neither) includes all students.">Status</HelpTip>
       </p>
       <button
         ref={triggerRef}
@@ -205,21 +221,25 @@ function StatusDropdown({ selected, onChange, isOpen, onOpen, onClose, anchor }:
       </button>
 
       <FloatingDropdown anchor={anchor} isOpen={isOpen} onClose={onClose}>
-        {opts.map(opt => (
+        {rows.map(row => (
           <button
-            key={opt}
+            key={row.key}
             type="button"
-            onClick={() => { onChange(opt); onClose(); }}
+            onClick={() => toggle(row.key)}
             className={`w-full text-left flex items-center gap-2.5 px-3 py-2.5 text-sm transition-colors ${
-              selected === opt ? 'bg-brand-light-blue text-brand-blue' : 'text-gray-700 hover:bg-gray-50'
+              row.checked ? 'bg-brand-light-blue text-brand-blue' : 'text-gray-700 hover:bg-gray-50'
             }`}
           >
-            <span className={`flex-none w-4 h-4 rounded-full border flex items-center justify-center ${
-              selected === opt ? 'bg-brand-blue border-brand-blue' : 'border-gray-300'
+            <span className={`flex-none w-4 h-4 rounded border flex items-center justify-center ${
+              row.checked ? 'bg-brand-blue border-brand-blue' : 'border-gray-300'
             }`}>
-              {selected === opt && <span className="w-2 h-2 bg-white rounded-full block" />}
+              {row.checked && (
+                <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 12 12" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M2 6l3 3 5-5" />
+                </svg>
+              )}
             </span>
-            {opt}
+            {row.label}
           </button>
         ))}
       </FloatingDropdown>

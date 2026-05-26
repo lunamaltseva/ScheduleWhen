@@ -10,7 +10,6 @@ import type { TimePeriod } from '../../types';
 // ── Layout ─────────────────────────────────────────────────────────────────────
 
 const LABEL_W = 'w-24 shrink-0';
-const underline = 'bg-transparent border-0 border-b-2 border-brand-gray rounded-none px-1 py-0.5 focus:outline-none focus:border-brand-blue text-sm text-center flex-1 min-w-0';
 
 function Row({ label, help, children }: { label: string; help: string; children: React.ReactNode }) {
   return (
@@ -48,6 +47,13 @@ const DURATION_PRESETS: { value: number; label: string }[] = [
   { value: 180, label: '180 minutes (3 hours)' },
 ];
 
+const TARGET_PRESETS: { value: number; label: string }[] = [
+  { value: 10, label: '10 participants' },
+  { value: 24, label: '24 participants' },
+  { value: 40, label: '40 participants' },
+  { value: 60, label: '60+ participants' },
+];
+
 // ── Week-offset helper ───────────────────────────────────────────────────────
 // Selecting a "Starting from" date should jump the calendar to that week.
 
@@ -76,7 +82,9 @@ export default function EventSpec() {
   const [durationText, setDurationText] = useState(() => String(state.duration));
   const [targetText, setTargetText]     = useState(() => String(state.targetParticipants));
   const [presetOpen, setPresetOpen]     = useState(false);
+  const [targetPresetOpen, setTargetPresetOpen] = useState(false);
   const presetRef = useRef<HTMLDivElement>(null);
+  const targetPresetRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { setDurationText(String(state.duration)); }, [state.duration]);
   useEffect(() => { setTargetText(String(state.targetParticipants)); }, [state.targetParticipants]);
@@ -89,6 +97,15 @@ export default function EventSpec() {
     document.addEventListener('mousedown', onClick);
     return () => document.removeEventListener('mousedown', onClick);
   }, [presetOpen]);
+
+  useEffect(() => {
+    if (!targetPresetOpen) return;
+    function onClick(e: MouseEvent) {
+      if (targetPresetRef.current && !targetPresetRef.current.contains(e.target as Node)) setTargetPresetOpen(false);
+    }
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, [targetPresetOpen]);
 
   function setDuration(n: number) {
     const clamped = Math.min(840, Math.max(1, n));
@@ -120,8 +137,14 @@ export default function EventSpec() {
   }
 
   // ── Target ────────────────────────────────────────────────────────────────
+  function setTarget(n: number) {
+    const clamped = Math.min(5000, Math.max(1, n));
+    setTargetText(String(clamped));
+    dispatch({ type: 'SET_TARGET', value: clamped });
+  }
+
   function handleTargetChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const raw = e.target.value;
+    const raw = e.target.value.replace(/[^0-9]/g, '');
     setTargetText(raw);
     const n = parseInt(raw, 10);
     if (!isNaN(n) && n >= 1 && n <= 5000) {
@@ -134,10 +157,12 @@ export default function EventSpec() {
     if (isNaN(n) || n < 1) {
       setTargetText(String(state.targetParticipants));
     } else {
-      const clamped = Math.min(5000, Math.max(1, n));
-      setTargetText(String(clamped));
-      dispatch({ type: 'SET_TARGET', value: clamped });
+      setTarget(n);
     }
+  }
+
+  function stepTarget(delta: number) {
+    setTarget((parseInt(targetText, 10) || state.targetParticipants) + delta);
   }
 
   // ── Date ────────────────────────────────────────────────────────────────
@@ -260,16 +285,48 @@ export default function EventSpec() {
         <DatePicker valueIso={state.timeframeFrom} onChange={handleDateChange} />
       </Row>
 
-      <Row label="Aim for" help="Target attendance. The algorithm flags slots that can't reach this number and may widen the time preference to hit it.">
-        <input
-          type="text"
-          inputMode="numeric"
-          value={targetText}
-          onChange={handleTargetChange}
-          onBlur={handleTargetBlur}
-          className={underline}
-        />
-        <span className="text-sm text-gray-500 shrink-0">participants</span>
+      <Row label="Aim for" help="Target attendance. Use the chevron for common sizes. The algorithm flags slots that can't reach this number and may widen the time preference to hit it.">
+        <button type="button" onClick={() => stepTarget(-5)} className={stepBtn} aria-label="Decrease target 5 participants">
+          <MinusIcon className="w-3.5 h-3.5" />
+        </button>
+        <div ref={targetPresetRef} className="relative flex-1 min-w-0">
+          <input
+            type="text"
+            inputMode="numeric"
+            value={targetText}
+            onChange={handleTargetChange}
+            onBlur={handleTargetBlur}
+            className="w-full bg-transparent border-0 border-b-2 border-brand-gray rounded-none pl-1 pr-6 py-0.5 focus:outline-none focus:border-brand-blue text-sm text-center"
+          />
+          <button
+            type="button"
+            onClick={() => setTargetPresetOpen(o => !o)}
+            className="absolute right-0 top-1/2 -translate-y-1/2 text-gray-400 hover:text-brand-blue"
+            aria-label="Participant presets"
+          >
+            <ChevronDown className={`w-4 h-4 transition-transform ${targetPresetOpen ? 'rotate-180' : ''}`} />
+          </button>
+          {targetPresetOpen && (
+            <div className="absolute right-0 mt-1 min-w-[180px] bg-white border border-brand-gray rounded-lg shadow-lg overflow-hidden z-30">
+              {TARGET_PRESETS.map(p => (
+                <button
+                  key={p.value}
+                  type="button"
+                  onClick={() => { setTarget(p.value); setTargetPresetOpen(false); }}
+                  className={`w-full text-left px-3 py-1.5 text-xs whitespace-nowrap transition-colors ${
+                    state.targetParticipants === p.value ? 'bg-brand-light-blue text-brand-blue font-semibold' : 'text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <button type="button" onClick={() => stepTarget(5)} className={stepBtn} aria-label="Increase target 5 participants">
+          <PlusIcon className="w-3.5 h-3.5" />
+        </button>
+        <span className="text-sm text-gray-500 shrink-0">people</span>
       </Row>
     </div>
   );

@@ -3,12 +3,10 @@ import { useApp } from '../../context/AppContext';
 import { ChevronUp, ChevronDown, ArrowLeft } from '../Icons';
 import { streamAI, buildContextBlock, type ParamAction } from '../../lib/ai';
 
-const SUGGESTED_PROMPTS = [
-  'Why is this time slot recommended?',
-  'Are there good evening options?',
-  'What if I need a room for 40 people?',
-  'Can you suggest a time that avoids Monday?',
-];
+// A single, well-formed example shown to demonstrate an ideal request. It is NOT
+// clickable — users are nudged to type their own request in the same shape.
+const EXAMPLE_PROMPT =
+  'Schedule a 90-minute workshop for 40 CS students on a weekday afternoon, starting the week of Sept 21.';
 
 // Typing reveal speed (characters per animation tick).
 const TYPE_CHARS_PER_TICK = 3;
@@ -207,7 +205,7 @@ function ChatBody({
     <div className="bg-white flex flex-col" style={{ height: mobileMode ? '100%' : '480px' }}>
       <div ref={containerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-3 space-y-2 min-h-0">
         {isEmpty ? (
-          <EmptyState onSend={onSend} />
+          <EmptyState />
         ) : (
           <>
             {messages.map(m => (
@@ -251,21 +249,17 @@ function ChatBody({
   );
 }
 
-function EmptyState({ onSend }: { onSend: (text: string) => void }) {
+function EmptyState() {
   return (
-    <div className="flex flex-col items-center justify-center h-full gap-3 px-3 py-4">
-      <p className="text-sm font-semibold text-gray-700 text-center">What would you want to schedule?</p>
-      <div className="grid grid-cols-2 gap-2 w-full">
-        {SUGGESTED_PROMPTS.map(prompt => (
-          <button
-            key={prompt}
-            onClick={() => onSend(prompt)}
-            className="text-xs text-left text-gray-600 bg-gray-50 hover:bg-brand-light-blue border border-brand-gray rounded-lg px-2.5 py-2 transition-colors leading-snug"
-          >
-            {prompt}
-          </button>
-        ))}
+    <div className="flex flex-col items-center justify-center h-full gap-3 px-4 py-4">
+      <p className="text-sm font-semibold text-gray-700 text-center">What would you like to schedule?</p>
+      <p className="text-xs text-gray-500 text-center leading-snug">
+        Describe your event in one message — include duration, audience, and any timing preferences. For example, type something like:
+      </p>
+      <div className="w-full rounded-xl border border-dashed border-brand-gray bg-gray-50 px-3 py-2.5">
+        <p className="text-xs italic text-gray-600 leading-snug select-text">“{EXAMPLE_PROMPT}”</p>
       </div>
+      <p className="text-[11px] text-gray-400 text-center">Type your own request in the box below to get started.</p>
     </div>
   );
 }
