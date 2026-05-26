@@ -42,7 +42,7 @@ function SuggestionChip({ suggestion, preferred, isBest }: {
           <StarIcon className="w-3 h-3" />
         </span>
       )}
-      <div className="flex items-center justify-between pr-4">
+      <div className={`flex items-center justify-between ${isBest && preferred ? 'pr-4' : ''}`}>
         <span className="text-sm font-bold leading-none">{dayLabel}</span>
         <span className={`text-base font-black leading-none ${preferred ? 'text-white' : 'text-gray-700'}`}>
           {pct}%

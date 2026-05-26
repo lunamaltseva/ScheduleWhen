@@ -87,7 +87,7 @@ export default function FiltersSection() {
       <table className="w-full table-fixed mb-2">
         <thead>
           <tr className="text-sm text-gray-400 border-b border-brand-gray">
-            <th className="px-3 py-1 text-left font-normal">Departments</th>
+            <th className="px-3 py-1 text-left font-normal truncate" title="Departments">Departments</th>
             <th className="px-2 py-1 text-left font-normal">Years</th>
             <th className="px-2 py-1 text-left font-normal">Status</th>
             <th className="px-1 py-1 w-14" />
