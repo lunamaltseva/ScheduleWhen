@@ -234,16 +234,19 @@ function HeatmapChip({ suggestion, isBest }: { suggestion: Suggestion; isBest: b
     ? `${suggestion.day} / ${suggestion.pairedDay}`
     : suggestion.day;
 
-  const goldRing: React.CSSProperties = showStar
-    ? { outline: '2px solid #dba620', outlineOffset: '2px' }
-    : {};
+  // Every chip gets a thick gold outline. The star icon alone marks the best
+  // recommendation.
+  const chipRing: React.CSSProperties = {
+    outline: '5px solid #dba620',
+    outlineOffset: '2px',
+  };
 
   const vis = (i: number): React.CSSProperties => ({ visibility: i >= cutFrom ? 'hidden' : 'visible' });
   const setRow = (i: number) => (el: HTMLElement | null) => { rowRefs.current[i] = el; };
 
   if (narrow) {
     return (
-      <div ref={ref} className={`h-full rounded-2xl shadow-md overflow-hidden flex flex-col justify-start px-2 py-1 relative ${shell}`} style={goldRing}>
+      <div ref={ref} className={`h-full rounded-2xl shadow-md overflow-hidden flex flex-col justify-start px-2 py-1 relative ${shell}`} style={chipRing}>
         {showStar && <span className="absolute top-0.5 right-0.5 text-brand-gold opacity-90 z-10"><StarIcon className="w-2.5 h-2.5" /></span>}
         <div ref={setRow(0)} style={vis(0)} className={`flex items-center justify-between gap-1 ${showStar ? 'pr-2' : ''}`}>
           <span className="text-[10px] font-bold leading-none truncate">{dayLabel}</span>
@@ -256,7 +259,7 @@ function HeatmapChip({ suggestion, isBest }: { suggestion: Suggestion; isBest: b
   }
 
   return (
-    <div ref={ref} className={`h-full rounded-2xl shadow-md overflow-hidden flex flex-col gap-1 px-3 py-2 relative ${shell}`} style={goldRing}>
+    <div ref={ref} className={`h-full rounded-2xl shadow-md overflow-hidden flex flex-col gap-1 px-3 py-2 relative ${shell}`} style={chipRing}>
       {showStar && <span className="absolute top-2 right-2.5 text-brand-gold opacity-90 z-10"><StarIcon className="w-3 h-3" /></span>}
       <div ref={setRow(0)} style={vis(0)} className={`flex items-center justify-between ${showStar ? 'pr-4' : ''}`}>
         <span className="text-sm font-bold leading-none">{dayLabel}</span>
@@ -279,14 +282,14 @@ function HeatmapChip({ suggestion, isBest }: { suggestion: Suggestion; isBest: b
 function HeatmapLegend({ min, max, visible }: { min: number; max: number; visible: boolean }) {
   if (!visible) return null;
   return (
-    <div className="absolute right-0 top-1/2 -translate-y-1/2 z-20 bg-white border border-r-0 border-brand-gray rounded-l-xl shadow-lg px-2.5 py-3 flex flex-col items-center">
-      <span className="text-[10px] font-bold text-gray-500 mb-1.5">Free%</span>
-      <span className="text-[10px] text-gray-400 mb-1">{Math.round(max)}%</span>
+    <div className="absolute right-0 top-1/2 -translate-y-1/2 z-20 bg-white border border-r-0 border-brand-gray rounded-l-xl shadow-lg px-3 py-4 flex flex-col items-center">
+      <span className="text-xs font-bold text-gray-500 mb-2">Free%</span>
+      <span className="text-[11px] text-gray-400 mb-1">{Math.round(max)}%</span>
       <div
-        className="w-3 rounded-full border border-brand-gray/50"
-        style={{ height: 130, background: 'linear-gradient(to top, #2d457c, #ffffff)' }}
+        className="w-4 rounded-full border border-brand-gray/50"
+        style={{ height: 175, background: 'linear-gradient(to top, #2d457c, #ffffff)' }}
       />
-      <span className="text-[10px] text-gray-400 mt-1">{Math.round(min)}%</span>
+      <span className="text-[11px] text-gray-400 mt-1">{Math.round(min)}%</span>
     </div>
   );
 }

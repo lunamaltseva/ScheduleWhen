@@ -264,6 +264,25 @@ function EmptyState() {
   );
 }
 
+// Minimal inline markdown: **bold**, *italic*, and `code`. Partial markup
+// mid-stream (e.g. an unclosed "**") simply renders literally until completed.
+function renderInlineMarkdown(text: string): React.ReactNode[] {
+  const nodes: React.ReactNode[] = [];
+  const regex = /\*\*([^*]+)\*\*|\*([^*]+)\*|`([^`]+)`/g;
+  let last = 0;
+  let key = 0;
+  let m: RegExpExecArray | null;
+  while ((m = regex.exec(text)) !== null) {
+    if (m.index > last) nodes.push(text.slice(last, m.index));
+    if (m[1] !== undefined) nodes.push(<strong key={key++}>{m[1]}</strong>);
+    else if (m[2] !== undefined) nodes.push(<em key={key++}>{m[2]}</em>);
+    else if (m[3] !== undefined) nodes.push(<code key={key++} className="bg-white/20 rounded px-1 py-0.5 text-[0.85em]">{m[3]}</code>);
+    last = regex.lastIndex;
+  }
+  if (last < text.length) nodes.push(text.slice(last));
+  return nodes;
+}
+
 function MessageBubble({
   role, text, streaming = false,
 }: {
@@ -278,7 +297,7 @@ function MessageBubble({
           role === 'user' ? 'bg-brand-gray text-black' : 'bg-brand-blue text-white'
         } ${streaming ? 'opacity-90' : ''}`}
       >
-        {text || (streaming ? '' : '')}
+        {role === 'bot' ? renderInlineMarkdown(text) : text}
         {streaming && (
           <span className="inline-block w-1.5 h-3.5 ml-0.5 bg-white/70 rounded-sm animate-pulse align-middle" />
         )}

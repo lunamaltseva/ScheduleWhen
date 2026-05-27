@@ -9,15 +9,16 @@ import type { TimePeriod } from '../../types';
 
 // ── Layout ─────────────────────────────────────────────────────────────────────
 
-const LABEL_W = 'w-24 shrink-0';
-
+// Label sits above the control so the stepper + input + unit always get the
+// card's full width. A side-by-side layout collapses the input under Windows
+// display scaling, where the fixed label/buttons/unit leave it near-zero width.
 function Row({ label, help, children }: { label: string; help: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-center gap-3 min-h-[36px]">
-      <span className={`text-sm font-semibold text-gray-600 ${LABEL_W}`}>
+    <div>
+      <p className="text-sm font-semibold text-gray-600 mb-1.5">
         <HelpTip text={help}>{label}</HelpTip>
-      </span>
-      <div className="flex items-center gap-2 flex-1 min-w-0">{children}</div>
+      </p>
+      <div className="flex items-center gap-2">{children}</div>
     </div>
   );
 }
@@ -179,7 +180,7 @@ export default function EventSpec() {
         <button type="button" onClick={() => stepDuration(-5)} className={stepBtn} aria-label="Decrease duration 5 minutes">
           <MinusIcon className="w-3.5 h-3.5" />
         </button>
-        <div ref={presetRef} className="relative flex-1 min-w-0">
+        <div ref={presetRef} className="relative flex-1 min-w-[4rem]">
           <input
             type="text"
             inputMode="numeric"
@@ -289,7 +290,7 @@ export default function EventSpec() {
         <button type="button" onClick={() => stepTarget(-5)} className={stepBtn} aria-label="Decrease target 5 participants">
           <MinusIcon className="w-3.5 h-3.5" />
         </button>
-        <div ref={targetPresetRef} className="relative flex-1 min-w-0">
+        <div ref={targetPresetRef} className="relative flex-1 min-w-[4rem]">
           <input
             type="text"
             inputMode="numeric"

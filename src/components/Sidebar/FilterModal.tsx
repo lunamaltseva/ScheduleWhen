@@ -195,9 +195,16 @@ function StatusDropdown({ selected, onChange, isOpen, onOpen, onClose, anchor }:
   function toggle(which: 'dom' | 'intl') {
     const nextDom  = which === 'dom'  ? !domChecked  : domChecked;
     const nextIntl = which === 'intl' ? !intlChecked : intlChecked;
-    if (nextDom === nextIntl) onChange('Any');           // both or neither
-    else if (nextDom)         onChange('Domestic');
-    else                      onChange('International');
+    // At least one must stay checked: unchecking the last one enables the other.
+    if (!nextDom && !nextIntl) {
+      onChange(which === 'dom' ? 'International' : 'Domestic');
+    } else if (nextDom && nextIntl) {
+      onChange('Any');
+    } else if (nextDom) {
+      onChange('Domestic');
+    } else {
+      onChange('International');
+    }
   }
 
   const rows: { key: 'dom' | 'intl'; label: string; checked: boolean }[] = [

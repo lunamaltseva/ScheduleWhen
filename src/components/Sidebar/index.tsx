@@ -58,7 +58,7 @@ export default function Sidebar({ mobileMode = false }: SidebarProps) {
   }
 
   return (
-    <aside className={`${mobileMode ? 'w-full' : 'w-1/5 min-w-[260px]'} flex flex-col h-full overflow-hidden border-r border-brand-gray bg-brand-light-blue/40`}>
+    <aside className={`${mobileMode ? 'w-full' : 'w-1/5 min-w-[300px]'} flex flex-col h-full overflow-hidden border-r border-brand-gray bg-brand-light-blue/40`}>
       <SidebarHeader />
 
       {mobileMode && (
