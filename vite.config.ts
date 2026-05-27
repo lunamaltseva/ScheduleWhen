@@ -7,7 +7,7 @@ const shimDir = path.resolve(__dirname, 'src/lib/shims');
 
 export default defineConfig({
   plugins: [react()],
-  base: '/ScheduleWhen/',
+  base: '/',
   resolve: {
     alias: {
       'node:crypto':          path.join(shimDir, 'node-crypto.ts'),
