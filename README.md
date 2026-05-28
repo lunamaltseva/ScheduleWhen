@@ -7,7 +7,7 @@ ScheduleWhen is an AUCA-focused scheduling assistant for faculty and staff. It
 uses student timetable data, academic calendar exceptions, audience filters,
 and event requirements to recommend better event times before an announcement
 or room request is made.
-
+ 
 The current version is an MVP frontend prototype built by the AmISoft team.
 It runs recommendation logic in the browser and is designed to be deployed to
 the project's custom `.net` domain.
