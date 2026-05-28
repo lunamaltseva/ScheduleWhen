@@ -174,4 +174,3 @@ AI calls should move behind a backend service.
 
 For final scheduling confidence, confirm room and timetable details with the
 Registrar's Office (Room 110).
-

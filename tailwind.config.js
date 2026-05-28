@@ -17,12 +17,14 @@ export default {
       },
       keyframes: {
         slideFromRight: {
-          from: { transform: 'translateX(48px)', opacity: '0', filter: 'blur(8px)' },
-          to:   { transform: 'translateX(0)',    opacity: '1', filter: 'blur(0px)' },
+          '0%':   { transform: 'translateX(90px) scaleX(1.06)', opacity: '0', filter: 'blur(14px)' },
+          '60%':  { filter: 'blur(5px)' },
+          '100%': { transform: 'translateX(0) scaleX(1)',       opacity: '1', filter: 'blur(0px)' },
         },
         slideFromLeft: {
-          from: { transform: 'translateX(-48px)', opacity: '0', filter: 'blur(8px)' },
-          to:   { transform: 'translateX(0)',     opacity: '1', filter: 'blur(0px)' },
+          '0%':   { transform: 'translateX(-90px) scaleX(1.06)', opacity: '0', filter: 'blur(14px)' },
+          '60%':  { filter: 'blur(5px)' },
+          '100%': { transform: 'translateX(0) scaleX(1)',        opacity: '1', filter: 'blur(0px)' },
         },
         modalIn: {
           from: { opacity: '0', transform: 'scale(0.95) translateY(-10px)' },
@@ -38,8 +40,8 @@ export default {
         },
       },
       animation: {
-        'slide-from-right': 'slideFromRight 0.28s ease-out',
-        'slide-from-left':  'slideFromLeft 0.28s ease-out',
+        'slide-from-right': 'slideFromRight 0.42s cubic-bezier(0.22, 1, 0.36, 1)',
+        'slide-from-left':  'slideFromLeft 0.42s cubic-bezier(0.22, 1, 0.36, 1)',
         'modal-in':         'modalIn 0.18s ease-out',
         'fade-in':          'fadeIn 0.15s ease-out',
         'pulse-blue':       'pulseBlue 1.8s ease-in-out infinite',

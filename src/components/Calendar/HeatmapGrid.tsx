@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, useCallback } from 'react';
+import { useRef, useEffect, useLayoutEffect, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useApp } from '../../context/AppContext';
 import { useResults } from '../../hooks/useResults';
@@ -175,10 +175,13 @@ function FillBar({ pct, preferred }: { pct: number; preferred: boolean }) {
 }
 
 // Same visual design as the sidebar SuggestionChip, with a compact fallback for
-// short/narrow placements in the grid.
+// short/narrow placements in the grid. Any row clipped by ≥10% of its own height
+// is hidden rather than shown cut off (measured against the chip's inner height).
 function HeatmapChip({ suggestion, isBest }: { suggestion: Suggestion; isBest: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
+  const rowRefs = useRef<(HTMLElement | null)[]>([]);
   const [narrow, setNarrow] = useState(true);
+  const [cutFrom, setCutFrom] = useState<number>(Infinity);
 
   useEffect(() => {
     const el = ref.current;
@@ -195,51 +198,82 @@ function HeatmapChip({ suggestion, isBest }: { suggestion: Suggestion; isBest: b
     return () => ro.disconnect();
   }, []);
 
+  // Determine the first row that would be cut off by ≥10% of its height, and
+  // hide it plus everything below it. Rows keep their layout box (visibility,
+  // not display) so the measurement stays stable across renders.
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const measure = () => {
+      const innerH = el.clientHeight;
+      let cut = Infinity;
+      const rows = rowRefs.current;
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i];
+        if (!r) continue;
+        const overflow = (r.offsetTop + r.offsetHeight) - innerH;
+        if (overflow > r.offsetHeight * 0.1) { cut = i; break; }
+      }
+      setCutFrom(cut);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [narrow, suggestion]);
+
   const preferred = suggestion.rank === 'primary-mw' || suggestion.rank === 'primary-tth';
   const shell = preferred
     ? 'bg-brand-blue text-white'
     : 'bg-gray-50 border border-brand-gray text-gray-600';
   const sub = preferred ? 'text-blue-200' : 'text-gray-400';
   const pctColor = preferred ? 'text-white' : 'text-gray-700';
+  const showStar = isBest && preferred;
 
   const dayLabel = suggestion.pairedDay
     ? `${suggestion.day} / ${suggestion.pairedDay}`
     : suggestion.day;
 
-  const goldRing: React.CSSProperties = isBest && preferred
-    ? { outline: '2px solid #dba620', outlineOffset: '2px' }
-    : {};
+  // Every chip gets a thick gold outline. The star icon alone marks the best
+  // recommendation.
+  const chipRing: React.CSSProperties = {
+    outline: '5px solid #dba620',
+    outlineOffset: '2px',
+  };
+
+  const vis = (i: number): React.CSSProperties => ({ visibility: i >= cutFrom ? 'hidden' : 'visible' });
+  const setRow = (i: number) => (el: HTMLElement | null) => { rowRefs.current[i] = el; };
 
   if (narrow) {
     return (
-      <div ref={ref} className={`h-full rounded-2xl shadow-md overflow-hidden flex flex-col justify-center px-2 py-1 relative ${shell}`} style={goldRing}>
-        {isBest && preferred && <span className="absolute top-0.5 right-0.5 text-brand-gold opacity-90"><StarIcon className="w-2.5 h-2.5" /></span>}
-        <div className="flex items-center justify-between gap-1 pr-2">
+      <div ref={ref} className={`h-full rounded-2xl shadow-md overflow-hidden flex flex-col justify-start px-2 py-1 relative ${shell}`} style={chipRing}>
+        {showStar && <span className="absolute top-0.5 right-0.5 text-brand-gold opacity-90 z-10"><StarIcon className="w-2.5 h-2.5" /></span>}
+        <div ref={setRow(0)} style={vis(0)} className={`flex items-center justify-between gap-1 ${showStar ? 'pr-2' : ''}`}>
           <span className="text-[10px] font-bold leading-none truncate">{dayLabel}</span>
           <span className={`text-[11px] font-black leading-none shrink-0 ${pctColor}`}>{Math.round(suggestion.rawFreePercent)}%</span>
         </div>
-        <span className="text-[9px] font-semibold leading-none truncate mt-0.5">{suggestion.startTime}–{suggestion.endTime}</span>
-        <FillBar pct={suggestion.rawFreePercent} preferred={preferred} />
+        <span ref={setRow(1)} style={vis(1)} className="text-[9px] font-semibold leading-none truncate mt-0.5">{suggestion.startTime}–{suggestion.endTime}</span>
+        <div ref={setRow(2)} style={vis(2)}><FillBar pct={suggestion.rawFreePercent} preferred={preferred} /></div>
       </div>
     );
   }
 
   return (
-    <div ref={ref} className={`h-full rounded-2xl shadow-md overflow-hidden flex flex-col gap-1 px-3 py-2 relative ${shell}`} style={goldRing}>
-      {isBest && preferred && <span className="absolute top-2 right-2.5 text-brand-gold opacity-90"><StarIcon className="w-3 h-3" /></span>}
-      <div className="flex items-center justify-between pr-4">
+    <div ref={ref} className={`h-full rounded-2xl shadow-md overflow-hidden flex flex-col gap-1 px-3 py-2 relative ${shell}`} style={chipRing}>
+      {showStar && <span className="absolute top-2 right-2.5 text-brand-gold opacity-90 z-10"><StarIcon className="w-3 h-3" /></span>}
+      <div ref={setRow(0)} style={vis(0)} className={`flex items-center justify-between ${showStar ? 'pr-4' : ''}`}>
         <span className="text-sm font-bold leading-none">{dayLabel}</span>
         <span className={`text-base font-black leading-none ${pctColor}`}>{Math.round(suggestion.rawFreePercent)}%</span>
       </div>
-      <div className="flex items-center gap-1.5 mt-0.5">
+      <div ref={setRow(1)} style={vis(1)} className="flex items-center gap-1.5 mt-0.5">
         <span className="text-sm font-semibold leading-none">{suggestion.startTime}</span>
         <span className={`text-xs leading-none ${sub}`}>to</span>
         <span className="text-sm font-semibold leading-none">{suggestion.endTime}</span>
       </div>
-      <span className={`text-xs leading-none ${sub}`}>
+      <span ref={setRow(2)} style={vis(2)} className={`text-xs leading-none ${sub}`}>
         ~{suggestion.onCampusCount.toLocaleString()} on campus
       </span>
-      <FillBar pct={suggestion.rawFreePercent} preferred={preferred} />
+      <div ref={setRow(3)} style={vis(3)}><FillBar pct={suggestion.rawFreePercent} preferred={preferred} /></div>
     </div>
   );
 }
@@ -248,20 +282,20 @@ function HeatmapChip({ suggestion, isBest }: { suggestion: Suggestion; isBest: b
 function HeatmapLegend({ min, max, visible }: { min: number; max: number; visible: boolean }) {
   if (!visible) return null;
   return (
-    <div className="absolute right-0 top-1/2 -translate-y-1/2 z-20 bg-white border border-r-0 border-brand-gray rounded-l-xl shadow-lg px-2.5 py-3 flex flex-col items-center">
-      <span className="text-[10px] font-bold text-gray-500 mb-1.5">Free%</span>
-      <span className="text-[10px] text-gray-400 mb-1">{Math.round(max)}%</span>
+    <div className="absolute right-0 top-1/2 -translate-y-1/2 z-20 bg-white border border-r-0 border-brand-gray rounded-l-xl shadow-lg px-3 py-4 flex flex-col items-center">
+      <span className="text-xs font-bold text-gray-500 mb-2">Free%</span>
+      <span className="text-[11px] text-gray-400 mb-1">{Math.round(max)}%</span>
       <div
-        className="w-3 rounded-full border border-brand-gray/50"
-        style={{ height: 130, background: 'linear-gradient(to top, #2d457c, #ffffff)' }}
+        className="w-4 rounded-full border border-brand-gray/50"
+        style={{ height: 175, background: 'linear-gradient(to top, #2d457c, #ffffff)' }}
       />
-      <span className="text-[10px] text-gray-400 mt-1">{Math.round(min)}%</span>
+      <span className="text-[11px] text-gray-400 mt-1">{Math.round(min)}%</span>
     </div>
   );
 }
 
 export default function HeatmapGrid() {
-  const { state } = useApp();
+  const { state, dispatch } = useApp();
   const { heatmap, eligibleStudents, fiftyMinDays } = useResults();
   const prevOffsetRef = useRef(state.weekOffset);
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
@@ -410,7 +444,14 @@ export default function HeatmapGrid() {
             const circleFill = enabled ? 'bg-brand-blue text-white shadow-sm' : 'bg-gray-100 text-gray-500';
             const todayRing: React.CSSProperties = today ? { outline: '2px solid #dba620', outlineOffset: '2px' } : {};
             return (
-              <div key={dayIdx} className="text-center py-3 px-1">
+              <button
+                key={dayIdx}
+                type="button"
+                onClick={() => dispatch({ type: 'TOGGLE_DAY', index: dayIdx })}
+                title={enabled ? `Click to exclude ${dayName}` : `Click to include ${dayName}`}
+                aria-pressed={enabled}
+                className="text-center py-2.5 px-1 rounded-xl transition-colors cursor-pointer hover:bg-brand-light-blue focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue"
+              >
                 <div className="flex items-center justify-center gap-1.5">
                   <p className={`text-sm font-bold uppercase tracking-wider leading-none ${enabled ? 'text-gray-700' : 'text-gray-400'}`}>{dayName}</p>
                   {isFiftyMinDay && enabled && (
@@ -419,13 +460,13 @@ export default function HeatmapGrid() {
                 </div>
                 <div className="flex items-center justify-center mt-1.5">
                   <span
-                    className={`text-base leading-none flex items-center justify-center w-9 h-9 rounded-full font-bold ${circleFill}`}
+                    className={`text-base leading-none flex items-center justify-center w-9 h-9 rounded-full font-bold transition-colors ${circleFill}`}
                     style={todayRing}
                   >
                     {date.getDate()}
                   </span>
                 </div>
-              </div>
+              </button>
             );
           })}
         </div>
