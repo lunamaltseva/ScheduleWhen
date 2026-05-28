@@ -13,7 +13,7 @@ It runs recommendation logic in the browser and is designed to be deployed to
 the project's custom `.net` domain.
  
 ## ✨ Highlights
-
+ 
 - Recommends event time windows based on student schedule availability.
 - Filters the audience by department, year of study, and student status.
 - Shows a calendar heatmap so users can inspect availability across the week.
