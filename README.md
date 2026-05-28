@@ -11,7 +11,7 @@ or room request is made.
 The current version is an MVP frontend prototype built by the AmISoft team.
 It runs recommendation logic in the browser and is designed to be deployed to
 the project's custom `.net` domain.
-
+ 
 ## ✨ Highlights
 
 - Recommends event time windows based on student schedule availability.
