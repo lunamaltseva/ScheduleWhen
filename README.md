@@ -72,11 +72,11 @@ Typical flow:
 5. Ask the AI assistant for clarification or parameter changes.
 6. Export the result as CSV when needed.
 
-The assistant can help with prompts similar, but not limited to:
+The assistant can help with questions like:
 
 ```text
 Make it a 90-minute event.
-Only consider Tuesday and Thursday after 2pm.
+Only consider Tuesday and Thursday afternoons.
 Why is this time recommended?
 I need around 40 participants.
 ```
@@ -116,7 +116,7 @@ For local demo use, create `.env.local`:
 
 ```env
 VITE_ANTHROPIC_API_KEY=your_api_key_here
-```
+``
 
 ## 📁 Project Structure
 
