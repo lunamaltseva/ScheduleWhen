@@ -11,6 +11,8 @@ or room request is made.
 The current version is an MVP frontend prototype built by the AmISoft team.
 It runs recommendation logic in the browser and is designed to be deployed to
 the project's custom `.net` domain.
+
+Live environment: [schedulewhen.net](https://schedulewhen.net)
  
 ## ✨ Highlights
  
@@ -114,12 +116,7 @@ For local demo use, create `.env.local`:
 
 ```env
 VITE_ANTHROPIC_API_KEY=your_api_key_here
-```
-
-Security note: Vite exposes `VITE_` variables to browser code. The current AI
-integration is suitable for a controlled prototype only. Before production, AI
-requests should be routed through a backend endpoint so that API keys are not
-sent to users' browsers.
+``
 
 ## 📁 Project Structure
 
